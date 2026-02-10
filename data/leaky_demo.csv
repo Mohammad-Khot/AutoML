@@ -1,0 +1,6 @@
+user_id,age,income,buy,label_copy
+1,25,50000,yes,yes
+2,30,60000,no,no
+3,45,80000,yes,yes
+4,35,65000,no,no
+5,40,70000,yes,yes

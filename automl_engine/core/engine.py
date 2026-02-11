@@ -142,9 +142,9 @@ class AutoMLEngine:
         print("\n=== FINAL MODEL SELECTION ===")
 
         best_model_name = select_best_model(state.scores, MODEL_PRIORITY)
-        model = get_model(task, best_model_name)
+        best_info = MODEL_REGISTRY[task][best_model_name]
 
-        best_pipeline = build_pipeline(model, X, self.config, seed=self.seed)
+        best_pipeline = build_pipeline(best_info, X, self.config, seed=self.seed)
         best_pipeline.fit(X, y)
 
         # ----------Persistence----------

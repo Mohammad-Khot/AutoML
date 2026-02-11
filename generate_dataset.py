@@ -2,9 +2,9 @@ from sklearn.datasets import load_breast_cancer, fetch_california_housing, fetch
 
 
 def main():
-    data = fetch_20newsgroups(as_frame=True)
+    data = fetch_california_housing(as_frame=True)
     df = data.frame
-    df.to_csv("data/20newsgroup.csv", index=False)
+    df.to_csv("data/california.csv", index=False)
 
 
 if __name__ == "__main__":

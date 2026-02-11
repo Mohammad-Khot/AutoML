@@ -1,5 +1,10 @@
+# core/config.py
+
 from dataclasses import dataclass
-from typing import Optional, List, Literal, get_args, cast
+from typing import Optional, Literal, get_args
+
+CLASSIFICATION_METRICS = {"accuracy", "f1", "roc_auc"}
+REGRESSION_METRICS = {"rmse", "mae", "r2"}
 
 ScalingMode = Literal["auto", "force", "none"]
 ScalerType = Literal["standard", "minmax", "robust", "maxabs"]
@@ -7,6 +12,7 @@ EncodingMode = Literal["auto", "onehot", "ordinal", "none"]
 TaskType = Literal["classification", "regression"]
 FeatureSelection = Literal["auto", "none", "kbest", "variance"]
 MetricType = Literal["accuracy", "f1", "roc_auc", "rmse", "mae", "r2"]
+MaxCompute = Literal["low", "medium", "high"]
 
 
 @dataclass
@@ -33,8 +39,10 @@ class AutoMLConfig:
     feature_selection: FeatureSelection = "auto"
 
     # ─────────────── Model Control ───────────────
-    allowed_models: Optional[List[str]] = None
-    time_budget: int = 600  # seconds (soft limit)
+    max_compute: MaxCompute = "high"
+
+    allowed_models: Optional[list[str]] = None
+    time_budget_soft: int = 600  # seconds (soft limit)
 
     min_improvement_over_dummy: float = 0.01  # min improvement over dummy
 
@@ -51,27 +59,28 @@ class AutoMLConfig:
 
     @classmethod
     def fast(cls):
-        return cls(cv_folds=3, nested_cv=False, time_budget=120)
+        return cls(cv_folds=3, nested_cv=False, time_budget_soft=120)
 
     @classmethod
     def thorough(cls):
-        return cls(cv_folds=10, nested_cv=True, time_budget=1800)
+        return cls(cv_folds=10, nested_cv=True, time_budget_soft=1800)
+
+    @staticmethod
+    def _validate_literal(value, literal_type, name: str):
+        if value not in get_args(literal_type):
+            allowed = ", ".join(map(str, get_args(literal_type)))
+            raise ValueError(f"invalid {name}: {value}. Allowed: {allowed}")
 
     def __post_init__(self):
-        if self.scaling_mode not in get_args(ScalingMode):
-            raise ValueError(f"invalid scaling_mode : {self.scaling_mode}")
+        self._validate_literal(self.scaling_mode, ScalingMode, "scaling_mode")
+        self._validate_literal(self.scaler_type, ScalerType, "scaler_type")
+        self._validate_literal(self.encoding_mode, EncodingMode, "encoding_mode")
 
-        if self.scaler_type not in get_args(ScalerType):
-            raise ValueError(f"invalid scaler_type : {self.scaler_type}")
+        if self.task is not None:
+            self._validate_literal(self.task, TaskType, "task_type")
 
-        if self.encoding_mode not in get_args(EncodingMode):
-            raise ValueError(f"invalid encoding_mode : {self.encoding_mode}")
-
-        if self.task is not None and self.task not in get_args(TaskType):
-            raise ValueError(f"invalid task : {self.task}")
-
-        if self.metric is not None and self.metric not in get_args(MetricType):
-            raise ValueError(f"invalid metric : {self.metric}")
+        if self.metric is not None:
+            self._validate_literal(self.metric, MetricType, "metric_type")
 
         if self.cv_folds < 2:
             raise ValueError("cv_folds must be at least 2")
@@ -79,26 +88,17 @@ class AutoMLConfig:
         if not (0 < self.scout_fraction <= 1):
             raise ValueError("scout_fraction must be in (0, 1]")
 
-        if self.task == "regression" and self.metric in {"accuracy", "f1", "roc_auc"}:
-            raise ValueError("Classification metrics cannot be used for regression")
+        if self.task and self.metric:
+            if self.task == "regression" and self.metric in CLASSIFICATION_METRICS:
+                raise ValueError(f"{self.metric} is for classification, not regression")
+            elif self.task == "classification" and self.metric in REGRESSION_METRICS:
+                raise ValueError(f"{self.metric} is for regression, not classification")
 
-        if self.task == "classification" and self.metric in {"rmse", "mae", "r2"}:
-            raise ValueError("Regression metrics cannot be used for classification")
-
-        if self.time_budget <= 0:
+        if self.time_budget_soft <= 0:
             raise ValueError("time_budget must be positive")
 
-        if self.scout_folds >= self.cv_folds:
+        if self.nested_cv and self.scout_folds >= self.cv_folds:
             raise ValueError("scout_folds must be smaller than cv_folds")
-
-    def resolved_metric(self) -> MetricType | None:
-        """Return concrete metric after task is known."""
-        if self.task == "classification":
-            return self.metric or cast(MetricType, "accuracy")
-        if self.task == "regression":
-            return self.metric or cast(MetricType, "r2")
-
-        raise ValueError("Task must be set before selecting metric")
 
     def __repr__(self):
         return f"AutoMLConfig(task={self.task}, metric={self.metric}, cv={self.cv_folds})"

@@ -12,6 +12,21 @@ from .encoders import select_encoder_strategy
 from .selectors import get_selector
 
 
+def init_model(mode_info: dict, seed: int | None):
+    model = mode_info["model"]()
+
+    if seed is None:
+        return model
+
+    if hasattr(model, "random_state"):
+        try:
+            model.set_params(random_state=seed)
+        except Exception:
+            pass
+
+    return model
+
+
 def build_base_pipeline(X: pd.DataFrame, config: AutoMLConfig, force_scaling: bool):
     num_cols = X.select_dtypes(include="number").columns
     cat_cols = X.select_dtypes(exclude="number").columns
@@ -44,9 +59,9 @@ def build_base_pipeline(X: pd.DataFrame, config: AutoMLConfig, force_scaling: bo
     ])
 
 
-def attach_model(base_pipe: Pipeline, model_info: dict) -> object:
+def attach_model(base_pipe: Pipeline, model_info: dict, seed=None) -> object:
     pipe = clone(base_pipe)
-    pipe.steps.append(("model", model_info["model"]()))
+    pipe.steps.append(("model", init_model(model_info, seed)))
     return pipe
 
 
@@ -54,6 +69,7 @@ def build_pipeline(
         model_info: dict,
         X: pd.DataFrame,
         config: AutoMLConfig,
+        seed: int | None = None,
         base_scaled: Pipeline | None = None,
         base_raw: Pipeline | None = None
 ) -> object | Pipeline:
@@ -81,5 +97,5 @@ def build_pipeline(
     return Pipeline([
         ("preprocess", preprocessor),
         ("select", selector),
-        ("model", model_info["model"]())
+        ("model", init_model(model_info, seed))
     ])

@@ -26,4 +26,4 @@ print("Saved model to artifacts/iris_run/")
 
 
 print("Final scores:", scores)
-print("Trained pipeline:", trained_pipeline)
+# print("Trained pipeline:", trained_pipeline)

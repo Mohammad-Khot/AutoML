@@ -1,5 +1,7 @@
 # core/registry.py
 
+from types import MappingProxyType
+
 from sklearn.linear_model import (
     RidgeClassifier,
     LogisticRegression,
@@ -25,159 +27,180 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.dummy import DummyRegressor, DummyClassifier
 
-MODEL_REGISTRY = {
+COST_LOW = "low"
+COST_MEDIUM = "medium"
+COST_HIGH = "high"
+
+BASE_META = {
+    "needs_scaling": False,
+    "size_sensitive": False,
+    "handles_high_dim": False,
+    "native_categorical": False,
+    "interpretable": False,
+    "compute_cost": COST_MEDIUM
+}
+
+MODEL_REGISTRY = MappingProxyType({
     "classification": {
         "logistic": {
-            "model": lambda: LogisticRegression(),
-            "needs_scaling": True
+            **BASE_META,
+            "model": LogisticRegression,
+            "needs_scaling": True,
+            "interpretable": True,
+            "compute_cost": COST_LOW
         },
         "ridge": {
-            "model": lambda: RidgeClassifier(),
-            "needs_scaling": True
+            **BASE_META,
+            "model": RidgeClassifier,
+            "needs_scaling": True,
+            "interpretable": True,
+            "compute_cost": COST_LOW
         },
         "svm": {
-            "model": lambda: SVC(
-                kernel="rbf",
-                probability=False,
-                cache_size=200
-            ),
-            "needs_scaling": True
+            **BASE_META,
+            "model": SVC,
+            "needs_scaling": True,
+            "size_sensitive": True,
+
         },
         "knn": {
-            "model": lambda: KNeighborsClassifier(),
-            "needs_scaling": True
+            **BASE_META,
+            "model": KNeighborsClassifier,
+            "needs_scaling": True,
+            "size_sensitive": True,
+
         },
         "naive_bayes": {
-            "model": lambda: GaussianNB(),
-            "needs_scaling": False
+            **BASE_META,
+            "model": GaussianNB,
         },
         "decision_tree": {
-            "model": lambda: DecisionTreeClassifier(
-                max_depth=15,
-                min_samples_leaf=2
-            ),
-            "needs_scaling": False
+            **BASE_META,
+            "model": DecisionTreeClassifier,
+            "handles_high_dim": True,
         },
         "rf": {
-            "model": lambda: RandomForestClassifier(),
-            "needs_scaling": False
+            **BASE_META,
+            "model": RandomForestClassifier,
+            "compute_cost": COST_HIGH,
+            "handles_high_dim": True,
+
         },
         "extra_trees": {
-            "model": lambda: ExtraTreesClassifier(),
-            "needs_scaling": False
+            **BASE_META,
+            "model": ExtraTreesClassifier,
+            "compute_cost": COST_HIGH
+
         },
         "gb": {
-            "model": lambda: GradientBoostingClassifier(),
-            "needs_scaling": False
+            **BASE_META,
+            "model": GradientBoostingClassifier,
+            "compute_cost": COST_HIGH
+
         },
         "hist_gb": {
-            "model": lambda: HistGradientBoostingClassifier(),
-            "needs_scaling": False
+            **BASE_META,
+            "model": HistGradientBoostingClassifier,
+            "compute_cost": COST_HIGH,
+            "native_categorical": True
         },
         "dummy": {
+            **BASE_META,
             "model": lambda: DummyClassifier(strategy="prior"),
-            "needs_scaling": False
         }
     },
     "regression": {
         "linear": {
-            "model": lambda: LinearRegression(),
-            "needs_scaling": True
+            **BASE_META,
+            "model": LinearRegression,
+            "needs_scaling": True,
+            "interpretable": True,
+            "compute_cost": COST_LOW
         },
         "ridge": {
-            "model": lambda: Ridge(),
-            "needs_scaling": True
+            **BASE_META,
+            "model": Ridge,
+            "needs_scaling": True,
+            "interpretable": True,
+            "compute_cost": COST_LOW
         },
         "lasso": {
-            "model": lambda: Lasso(),
-            "needs_scaling": True
+            **BASE_META,
+            "model": Lasso,
+            "needs_scaling": True,
+            "interpretable": True,
+            "compute_cost": COST_LOW
         },
         "elastic": {
-            "model": lambda: ElasticNet(),
-            "needs_scaling": True
+            **BASE_META,
+            "model": ElasticNet,
+            "needs_scaling": True,
+            "interpretable": True,
+            "compute_cost": COST_LOW
         },
         "sgd": {
-            "model": lambda: SGDRegressor(
-                loss="squared_error",
-                penalty="elasticnet",
-                max_iter=2000,
-                tol=1e-3,
-                learning_rate="adaptive",
-                eta0=0.01
-            ),
-            "needs_scaling": True
+            **BASE_META,
+            "model": SGDRegressor,
+            "needs_scaling": True,
+            "interpretable": True,
+            "compute_cost": COST_LOW
         },
         "svm": {
-            "model": lambda: SVR(
-                C=1.0,
-                epsilon=0.1,
-                cache_size=200
-            ),
+            **BASE_META,
+            "model": SVR,
             "needs_scaling": True,
-            "size_sensitive": True
+            "size_sensitive": True,
+
         },
         "knn": {
-            "model": lambda: KNeighborsRegressor(
-                n_neighbors=5,
-                weights="distance",
-                algorithm="auto"
-            ),
-            "needs_scaling": True
+            **BASE_META,
+            "model": KNeighborsRegressor,
+            "needs_scaling": True,
+            "size_sensitive": True,
         },
         "decision_tree": {
-            "model": lambda: DecisionTreeRegressor(
-                max_depth=15,
-                min_samples_leaf=2
-            ),
-            "needs_scaling": False
+            **BASE_META,
+            "model": DecisionTreeRegressor,
+            "handles_high_dim": True,
+
         },
         "rf": {
-            "model": lambda: RandomForestRegressor(
-                n_estimators=80,
-                max_depth=20,
-                min_samples_leaf=2,
-                n_jobs=1
-            ),
-            "needs_scaling": False
+            **BASE_META,
+            "model": RandomForestRegressor,
+            "compute_cost": COST_HIGH,
+            "handles_high_dim": True,
+
         },
         "extra_trees": {
-            "model": lambda: ExtraTreesRegressor(
-                n_estimators=80,
-                max_depth=20,
-                n_jobs=1
-            ),
-            "needs_scaling": False
+            **BASE_META,
+            "model": ExtraTreesRegressor,
+            "compute_cost": COST_HIGH
+
         },
         "gb": {
-            "model": lambda: GradientBoostingRegressor(
-                n_estimators=120,
-                learning_rate=0.08,
-                max_depth=3,
-                subsample=0.85
-            ),
-            "needs_scaling": False
+            **BASE_META,
+            "model": GradientBoostingRegressor,
+            "compute_cost": COST_HIGH
+
         },
         "hist_gb": {
-            "model": lambda: HistGradientBoostingRegressor(
-                max_iter=200,
-                early_stopping=True,
-                validation_fraction=0.1,
-                n_iter_no_change=8
-            ),
-            "needs_scaling": False
+            **BASE_META,
+            "model": HistGradientBoostingRegressor,
+            "compute_cost": COST_HIGH,
+            "native_categorical": True,
+
         },
         "dummy": {
+            **BASE_META,
             "model": lambda: DummyRegressor(strategy="mean"),
-            "needs_scaling": False
         }
     },
-}
+})
 
 MODEL_PRIORITY = {
 
     # ----------Classifiers----------
     "logistic": 1,
-    "svm": 2,
 
     "naive_bayes": 2,
 
@@ -186,7 +209,6 @@ MODEL_PRIORITY = {
     "lasso": 1,
     "elastic": 1,
 
-    "svr": 2,
     "sgd": 2,
 
     # ----------Classifiers & Regressors----------
@@ -196,6 +218,7 @@ MODEL_PRIORITY = {
 
     "knn": 2,
     "decision_tree": 2,
+    "svm": 2,
 
     "rf": 3,
     "extra_trees": 3,
@@ -203,3 +226,17 @@ MODEL_PRIORITY = {
     "hist_gb": 3,
 
 }
+
+
+def get_model(task: str, name: str):
+    try:
+        factory = MODEL_REGISTRY[task][name]["model"]
+        return factory() if callable(factory) else factory()
+    except KeyError:
+        raise ValueError(f"Unknown model {name} for task {task}")
+
+
+for task in MODEL_REGISTRY:
+    for name in MODEL_REGISTRY[task]:
+        if name not in MODEL_PRIORITY:
+            raise ValueError(f"Priority missing for model: {name}")

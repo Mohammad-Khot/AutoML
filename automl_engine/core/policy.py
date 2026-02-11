@@ -1,26 +1,12 @@
+TOL = 1e-6
 
 
-def select_best_model(scores: dict, priority: dict):
-    """
-    Select model based on:
-    1. highest score
-    2. lowest priority value
-    3. stable name sort
-    """
+def select_best_model(scores: dict[str, float], priority: dict[str, int]) -> str:
     if not scores:
-        raise ValueError(
-            "No model could be evaluated successfully."
-            "Dataset too small or CV impossible"
-        )
+        raise ValueError("No model could be evaluated successfully. Dataset too small or CV impossible")
+
     max_score = max(scores.values())
 
-    tied = [
-        name for name, score in scores.items()
-        if score == max_score
-    ]
+    tied = [n for n, s in scores.items() if abs(s - max_score) <= TOL]
 
-    if len(tied) == 1:
-        return tied[0]
-
-    tied.sort(key=lambda name: (priority.get(name, 99), name))
-    return tied[0]
+    return min(tied, key=lambda n: (priority.get(n, 99), n))

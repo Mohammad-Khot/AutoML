@@ -2,6 +2,7 @@
 
 from types import MappingProxyType
 
+from sklearn.base import BaseEstimator
 from sklearn.linear_model import (
     RidgeClassifier,
     LogisticRegression,
@@ -26,6 +27,9 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.dummy import DummyRegressor, DummyClassifier
+from xgboost import XGBRegressor, XGBClassifier
+# from lightgbm import LGBMRegressor, LGBMClassifier
+# from catboost import CatBoostRegressor, CatBoostClassifier
 
 COST_LOW = "low"
 COST_MEDIUM = "medium"
@@ -44,66 +48,86 @@ MODEL_REGISTRY = MappingProxyType({
     "classification": {
         "logistic": {
             **BASE_META,
-            "model": LogisticRegression,
+            "model": lambda: LogisticRegression(),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW
         },
         "ridge": {
             **BASE_META,
-            "model": RidgeClassifier,
+            "model": lambda: RidgeClassifier(),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW
         },
         "svm": {
             **BASE_META,
-            "model": SVC,
+            "model": lambda: SVC(),
             "needs_scaling": True,
             "size_sensitive": True,
 
         },
         "knn": {
             **BASE_META,
-            "model": KNeighborsClassifier,
+            "model": lambda: KNeighborsClassifier(),
             "needs_scaling": True,
             "size_sensitive": True,
 
         },
         "naive_bayes": {
             **BASE_META,
-            "model": GaussianNB,
+            "model": lambda: GaussianNB(),
         },
         "decision_tree": {
             **BASE_META,
-            "model": DecisionTreeClassifier,
+            "model": lambda: DecisionTreeClassifier(),
             "handles_high_dim": True,
         },
         "rf": {
             **BASE_META,
-            "model": RandomForestClassifier,
+            "model": lambda: RandomForestClassifier(),
             "compute_cost": COST_HIGH,
             "handles_high_dim": True,
 
         },
         "extra_trees": {
             **BASE_META,
-            "model": ExtraTreesClassifier,
+            "model": lambda: ExtraTreesClassifier(),
             "compute_cost": COST_HIGH
 
         },
         "gb": {
             **BASE_META,
-            "model": GradientBoostingClassifier,
+            "model": lambda: GradientBoostingClassifier(),
             "compute_cost": COST_HIGH
 
         },
         "hist_gb": {
             **BASE_META,
-            "model": HistGradientBoostingClassifier,
+            "model": lambda: HistGradientBoostingClassifier(),
             "compute_cost": COST_HIGH,
             "native_categorical": True
         },
+        "xgboost": {
+            **BASE_META,
+            "model": lambda: XGBClassifier(),
+            "compute_cost": COST_HIGH,
+            "handles_high_dim": True
+        },
+        # "catboost": {
+        #     **BASE_META,
+        #     "model": lambda: CatBoostClassifier(verbose=False),
+        #     "compute_cost": COST_MEDIUM,
+        #     "handles_high_dim": True,
+        #     "native_categorical": True,
+        # },
+        # "lightgbm": {
+        #     **BASE_META,
+        #     "model": lambda: LGBMClassifier(),
+        #     "compute_cost": COST_HIGH,
+        #     "handles_high_dim": True,
+        #     "native_categorical": True,
+        # },
         "dummy": {
             **BASE_META,
             "model": lambda: DummyClassifier(strategy="prior"),
@@ -112,84 +136,98 @@ MODEL_REGISTRY = MappingProxyType({
     "regression": {
         "linear": {
             **BASE_META,
-            "model": LinearRegression,
+            "model": lambda: LinearRegression(),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW
         },
         "ridge": {
             **BASE_META,
-            "model": Ridge,
+            "model": lambda: Ridge(),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW
         },
         "lasso": {
             **BASE_META,
-            "model": Lasso,
+            "model": lambda: Lasso(),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW
         },
         "elastic": {
             **BASE_META,
-            "model": ElasticNet,
+            "model": lambda: ElasticNet(),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW
         },
         "sgd": {
             **BASE_META,
-            "model": SGDRegressor,
+            "model": lambda: SGDRegressor(),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW
         },
         "svm": {
             **BASE_META,
-            "model": SVR,
+            "model": lambda: SVR(),
             "needs_scaling": True,
             "size_sensitive": True,
-
         },
         "knn": {
             **BASE_META,
-            "model": KNeighborsRegressor,
+            "model": lambda: KNeighborsRegressor(),
             "needs_scaling": True,
             "size_sensitive": True,
         },
         "decision_tree": {
             **BASE_META,
-            "model": DecisionTreeRegressor,
+            "model": lambda: DecisionTreeRegressor(),
             "handles_high_dim": True,
-
         },
         "rf": {
             **BASE_META,
-            "model": RandomForestRegressor,
+            "model": lambda: RandomForestRegressor(),
             "compute_cost": COST_HIGH,
             "handles_high_dim": True,
-
         },
         "extra_trees": {
             **BASE_META,
-            "model": ExtraTreesRegressor,
+            "model": lambda: ExtraTreesRegressor(),
             "compute_cost": COST_HIGH
-
         },
         "gb": {
             **BASE_META,
-            "model": GradientBoostingRegressor,
+            "model": lambda: GradientBoostingRegressor(),
             "compute_cost": COST_HIGH
-
         },
         "hist_gb": {
             **BASE_META,
-            "model": HistGradientBoostingRegressor,
+            "model": lambda: HistGradientBoostingRegressor(),
             "compute_cost": COST_HIGH,
             "native_categorical": True,
-
         },
+        "xgboost": {
+            **BASE_META,
+            "model": lambda: XGBRegressor(),
+            "compute_cost": COST_HIGH,
+            "handles_high_dim": True
+        },
+        # "catboost": {
+        #     **BASE_META,
+        #     "model": lambda: CatBoostRegressor(verbose=False),
+        #     "compute_cost": COST_MEDIUM,
+        #     "handles_high_dim": True,
+        #     "native_categorical": True,
+        # },
+        # "lightgbm": {
+        #     **BASE_META,
+        #     "model": lambda: LGBMRegressor(),
+        #     "compute_cost": COST_HIGH,
+        #     "handles_high_dim": True,
+        #     "native_categorical": True,
+        # },
         "dummy": {
             **BASE_META,
             "model": lambda: DummyRegressor(strategy="mean"),
@@ -224,14 +262,16 @@ MODEL_PRIORITY = {
     "extra_trees": 3,
     "gb": 3,
     "hist_gb": 3,
-
+    "xgboost": 3,
+    # "catboost": 3,
+    # "lightgbm": 3,
 }
 
 
-def get_model(task: str, name: str):
+def get_model(task: str, name: str) -> BaseEstimator:
     try:
-        factory = MODEL_REGISTRY[task][name]["model"]
-        return factory() if callable(factory) else factory()
+        factory = MODEL_REGISTRY[task][name]["model"]()
+        return factory
     except KeyError:
         raise ValueError(f"Unknown model {name} for task {task}")
 

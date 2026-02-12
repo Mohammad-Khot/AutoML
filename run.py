@@ -7,13 +7,33 @@ import time
 def print_scores(scores):
     print("\n=== Model Performance (Inner CV) ===")
 
-    for name, value in sorted(scores["inner_scores"].items(),
-                              key=lambda x: x[1],
-                              reverse=True):
-        print(f"{name:<14} → {value:>6.4f}")
+    for name, value in sorted(
+            scores["inner_scores"].items(),
+            key=lambda x: float(x[1]),
+            reverse=True
+    ):
+        print(f"{name:<14} → {float(value):>6.4f}")
 
-    if scores["outer_scores"]:
-        outer = scores["outer_scores"]
+    if scores.get("outer_scores"):
+        raw = scores["outer_scores"]
+
+        # Keep only things that look numeric
+        outer = []
+        bad = []
+
+        for s in raw:
+            try:
+                outer.append(float(s))
+            except (TypeError, ValueError):
+                bad.append(s)
+
+        if bad:
+            print(f"\nWarning: ignored non-numeric outer values → {bad}")
+
+        if not outer:
+            print("\nNo valid outer scores to display")
+            return
+
         print("\n=== Outer CV ===")
         print(f"folds : {[round(s, 4) for s in outer]}")
         print(f"mean  : {np.mean(outer):.4f}")
@@ -28,7 +48,7 @@ def main():
     )
 
     engine = AutoMLEngine(config)
-    trained_pipeline, scores = engine.run("data/california.csv")
+    trained_pipeline, scores = engine.run("data/iris.csv")
 
     # print("\nPipeline:", trained_pipeline)
 

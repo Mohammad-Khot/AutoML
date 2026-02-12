@@ -7,8 +7,8 @@ import pandas as pd
 
 from sklearn.preprocessing import LabelEncoder
 
-from automl_engine.core.registry import COST_LOW, COST_MEDIUM, COST_HIGH, get_model
-from automl_engine.data import load_csv, infer_target, infer_task, run_leakage_checks
+from automl_engine.core.registry import COST_LOW, COST_MEDIUM
+from automl_engine.data import load_table, infer_target, infer_task, run_leakage_checks
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.utils import set_global_seed, save_pipeline, save_object
 from automl_engine.optimization import evaluate_models, filter_by_dummy_once
@@ -33,7 +33,7 @@ class AutoMLEngine:
         set_global_seed(self.seed)
 
         # ----------Data Loading----------
-        df = load_csv(csv_path)
+        df = load_table(csv_path)
         target = infer_target(df, self.config.target)
 
         self.leaks = run_leakage_checks(df, target)

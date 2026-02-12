@@ -7,6 +7,6 @@ def select_best_model(scores: dict[str, float], priority: dict[str, int]) -> str
 
     max_score = max(scores.values())
 
-    tied = [n for n, s in scores.items() if abs(s - max_score) <= TOL]
+    tied = [name for name, score in scores.items() if abs(score - max_score) <= TOL]
 
-    return min(tied, key=lambda n: (priority.get(n, 99), n))
+    return min(tied, key=lambda name: (priority.get(name, 99), name))

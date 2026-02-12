@@ -1,10 +1,25 @@
 # core/config.py
 
 from dataclasses import dataclass
-from typing import Optional, Literal, get_args
+from typing import Optional, Literal, get_args, Any, Type, Self
 
-CLASSIFICATION_METRICS = {"accuracy", "f1", "roc_auc"}
-REGRESSION_METRICS = {"rmse", "mae", "r2"}
+METRIC_TASK_MAP = {
+    "accuracy": "classification",
+    "f1": "classification",
+    "roc_auc": "classification",
+
+    "rmse": "regression",
+    "mae": "regression",
+    "r2": "regression",
+}
+
+CLASSIFICATION_METRICS = {
+    metric for metric, task in METRIC_TASK_MAP.items() if task == "classification"
+}
+
+REGRESSION_METRICS = {
+    metric for metric, task in METRIC_TASK_MAP.items() if task == "regression"
+}
 
 ScalingMode = Literal["auto", "force", "none"]
 ScalerType = Literal["standard", "minmax", "robust", "maxabs"]
@@ -13,6 +28,7 @@ TaskType = Literal["classification", "regression"]
 FeatureSelection = Literal["auto", "none", "kbest", "variance"]
 MetricType = Literal["accuracy", "f1", "roc_auc", "rmse", "mae", "r2"]
 MaxCompute = Literal["low", "medium", "high"]
+LeakPolicy = Literal["error", "warn", "drop"]
 
 
 @dataclass
@@ -42,12 +58,13 @@ class AutoMLConfig:
     max_compute: MaxCompute = "high"
 
     allowed_models: Optional[list[str]] = None
-    time_budget_soft: int = 600  # seconds (soft limit)
+    blocked_models: Optional[list[str]] = None  # Planned feature
+    time_budget_soft: int = 600  # advisory budget used to plan search aggressiveness,NOT a hard termination limit
 
-    min_improvement_over_dummy: float = 0.01  # min improvement over dummy
+    min_improvement_over_dummy: float = 0.01
 
     # ─────────────── Data Quality ───────────────
-    drop_leaky_columns: bool = False
+    drop_leaky_columns: LeakPolicy = None  # Add logging
     id_threshold: float = 0.95
 
     # ─────────────── Search Strategy ───────────────
@@ -58,17 +75,38 @@ class AutoMLConfig:
     log: bool = True
 
     @classmethod
-    def fast(cls):
-        return cls(cv_folds=3, nested_cv=False, time_budget_soft=120)
+    def fast(cls, **overrides: Any) -> Self:
+        return cls(
+            cv_folds=3,
+            nested_cv=False,
+            max_compute="low",
+            scout_fraction=0.1,
+            scout_folds=2,
+            time_budget_soft=120,
+            **overrides
+        )
 
     @classmethod
-    def thorough(cls):
-        return cls(cv_folds=10, nested_cv=True, time_budget_soft=1800)
+    def thorough(cls, **overrides: Any) -> Self:
+        return cls(
+            cv_folds=10,
+            nested_cv=True,
+            max_compute="high",
+            scout_fraction=0.4,
+            scout_folds=5,
+            time_budget_soft=1800,
+            **overrides
+        )
 
     @staticmethod
-    def _validate_literal(value, literal_type, name: str):
-        if value not in get_args(literal_type):
-            allowed = ", ".join(map(str, get_args(literal_type)))
+    def _validate_literal(value: Any, literal_type: Type, name: str) -> None:
+        args = get_args(literal_type)
+
+        if not args:
+            raise TypeError(f"{name} is not a literal type.")
+
+        if value not in args:
+            allowed = ", ".join(map(str, args))
             raise ValueError(f"invalid {name}: {value}. Allowed: {allowed}")
 
     def __post_init__(self):
@@ -89,10 +127,12 @@ class AutoMLConfig:
             raise ValueError("scout_fraction must be in (0, 1]")
 
         if self.task and self.metric:
-            if self.task == "regression" and self.metric in CLASSIFICATION_METRICS:
-                raise ValueError(f"{self.metric} is for classification, not regression")
-            elif self.task == "classification" and self.metric in REGRESSION_METRICS:
-                raise ValueError(f"{self.metric} is for regression, not classification")
+            expected = METRIC_TASK_MAP[self.metric]
+            if expected != self.task:
+                raise ValueError(
+                    f"Metric '{self.metric}' belongs to {expected}, "
+                    f"not {self.task}"
+                )
 
         if self.time_budget_soft <= 0:
             raise ValueError("time_budget must be positive")

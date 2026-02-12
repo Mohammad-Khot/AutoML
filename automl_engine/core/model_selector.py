@@ -8,14 +8,14 @@ def is_model_suitable(name: str, meta: dict, info: DataInfo) -> bool:
     return not _unsuitable_reason(name, meta, info)
 
 
-def _unsuitable_reason(name, meta, info) -> str | None:
+def _unsuitable_reason(name: str, meta: dict, info: DataInfo) -> str | None:
     if meta.get("size_sensitive", False) and info.n_rows > MAX_ROWS:
-        return "too many rows for size-sensitive model"
+        return f"{name}: too many rows for size-sensitive model."
 
     if not meta.get("handles_high_dim", False) and info.n_features > MAX_FEATURES:
-        return "too high dimensional"
+        return f"{name}: too high dimensional."
 
     if info.has_categorical and not meta.get("native_categorical", False):
-        return "lacks categorical support"
+        return f"{name}: lacks categorical support."
 
     return None

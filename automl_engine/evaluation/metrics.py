@@ -1,12 +1,13 @@
 # evaluation/metrics.py
 
 from sklearn.metrics import get_scorer
+from typing import Callable
 
 CLASSIFICATION_METRICS = {
     "accuracy": "accuracy",
     "f1": "f1",
     "f1_macro": "f1_macro",
-    "roc_auc": "roc_auc",
+    "roc_auc": "roc_auc_ovr",
     "precision": "precision",
     "recall": "recall",
 }
@@ -24,7 +25,7 @@ DEFAULT_METRIC = {
 }
 
 
-def get_scorer_safe(metric_name: str):
+def get_scorer_safe(metric_name: str) -> Callable:
     try:
         scorer = get_scorer(metric_name)
     except ValueError:
@@ -33,6 +34,9 @@ def get_scorer_safe(metric_name: str):
 
 
 def resolve_metric(task: str, metric: str | None) -> str:
+    if task not in DEFAULT_METRIC:
+        raise ValueError(f"Unknown task: {task}")
+
     if metric is None:
         return DEFAULT_METRIC[task]
 
@@ -40,14 +44,18 @@ def resolve_metric(task: str, metric: str | None) -> str:
 
     if task == "classification":
         if metric not in CLASSIFICATION_METRICS:
-            print(f"Metric {metric} invalid for classification.\n[METRIC] : Accuracy")
-            return "accuracy"
+            raise ValueError(
+                f"Invalid classification metric '{metric}'."
+                f"Allowed: {list(CLASSIFICATION_METRICS)}"
+            )
         return CLASSIFICATION_METRICS[metric]
 
     if task == "regression":
         if metric not in REGRESSION_METRICS:
-            print(f"Metric {metric} invalid for regression. \n[METRIC] : R2")
-            return "r2"
+            raise ValueError(
+                f"Invalid classification metric '{metric}'."
+                f"Allowed: {list(REGRESSION_METRICS)}"
+            )
         return REGRESSION_METRICS[metric]
 
     raise ValueError(f"Unknown task: {task}")

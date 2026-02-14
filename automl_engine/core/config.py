@@ -29,6 +29,8 @@ FeatureSelection = Literal["auto", "none", "kbest", "variance"]
 MetricType = Literal["accuracy", "f1", "roc_auc", "rmse", "mae", "r2"]
 MaxCompute = Literal["low", "medium", "high"]
 LeakPolicy = Literal["error", "warn", "drop"]
+CVStrategy = Literal["auto", "kfold", "stratified", "repeated", "timeseries"]
+ImputeStrategy = Literal["auto", "simple", "knn", "iterative", "none"]
 
 
 @dataclass
@@ -42,6 +44,7 @@ class AutoMLConfig:
 
     cv_folds: int = 5
     nested_cv: bool = True
+    cv_strategy: CVStrategy = "auto"
     seed: Optional[int] = None
     n_jobs: int = -1
 
@@ -53,6 +56,9 @@ class AutoMLConfig:
     max_cardinality_one_hot: int = 20
 
     feature_selection: FeatureSelection = "auto"
+
+    imputation: ImputeStrategy = "auto"
+    add_missing_indicator: bool = False
 
     # ─────────────── Model Control ───────────────
     max_compute: MaxCompute = "high"

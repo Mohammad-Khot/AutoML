@@ -9,11 +9,12 @@ from sklearn.preprocessing import LabelEncoder
 
 from automl_engine.core.registry import COST_LOW, COST_MEDIUM
 from automl_engine.data import load_table, infer_target, infer_task, run_leakage_checks
-from automl_engine.preprocessing import build_pipeline
+from automl_engine.preprocessing import build_pipeline, build_base_pipeline
 from automl_engine.utils import set_global_seed, save_pipeline, save_object
-from automl_engine.optimization import evaluate_models, filter_by_dummy_once
-from automl_engine.evaluation import get_cv, nested_cv, resolve_metric
+from automl_engine.optimization import filter_by_dummy_once
+from automl_engine.evaluation import get_cv_object, resolve_metric, evaluate_models
 from automl_engine.core import MODEL_REGISTRY, MODEL_PRIORITY, select_best_model, is_model_suitable, DataInfo
+from automl_engine.evaluation.nested import nested_cv
 
 
 class AutoMLEngine:
@@ -71,7 +72,7 @@ class AutoMLEngine:
                 )
 
         # ----------CV Setup----------
-        outer_cv = get_cv(task, y, self.config.cv_folds, self.seed)
+        outer_cv = get_cv_object(task, y, self.config.cv_folds, self.seed)
         models = MODEL_REGISTRY[task]
 
         # ----------Model Filtering----------
@@ -97,7 +98,9 @@ class AutoMLEngine:
             name for name, info in models_before_suitability.items()
             if not is_model_suitable(name, info, data_info)
         ]
-        print("Rejected by suitability:", rejected)
+
+        if rejected.__len__() != 0:
+            print("Rejected by suitability:", rejected)
 
         if not models:
             raise ValueError("All models rejected by suitability rules.")
@@ -120,7 +123,20 @@ class AutoMLEngine:
 
         # ----------Pre-filter before nested----------
         print("\n=== GLOBAL PRE-SCREEN ===")
-        models = filter_by_dummy_once(X, y, models, outer_cv, self.config)
+
+        base_scaled = build_base_pipeline(
+            X,
+            self.config,
+            force_scaling=True
+        )
+
+        base_raw = build_base_pipeline(
+            X,
+            self.config,
+            force_scaling=False
+        )
+
+        models = filter_by_dummy_once(X, y, models, outer_cv, self.config, base_scaled=base_scaled, base_raw=base_raw)
 
         if len(models) <= 1:
             print("[WARN] Only dummy model remains after filtering.")
@@ -129,14 +145,14 @@ class AutoMLEngine:
 
         if not self.config.nested_cv:
             print("Nested CV Disabled - using standard cross-validation.")
-            state = evaluate_models(X, y, models, outer_cv, self.config)
+            state = evaluate_models(X, y, models, outer_cv, self.config, base_scaled=base_scaled, base_raw=base_raw)
             outer_scores = state.scores
         else:
             print("\n=== RUNNING NESTED EVALUATION ===")
             outer_result = nested_cv(X, y, models, outer_cv, self.config)
             outer_scores = getattr(outer_result, "scores", outer_result)
 
-            state = evaluate_models(X, y, models, outer_cv, self.config)
+            state = evaluate_models(X, y, models, outer_cv, self.config, base_scaled=base_scaled, base_raw=base_raw)
 
         # ----------Final Training----------
         print("\n=== FINAL MODEL SELECTION ===")
@@ -144,7 +160,7 @@ class AutoMLEngine:
         best_model_name = select_best_model(state.scores, MODEL_PRIORITY)
         best_info = MODEL_REGISTRY[task][best_model_name]
 
-        best_pipeline = build_pipeline(best_info, X, self.config, seed=self.seed)
+        best_pipeline = build_pipeline(best_info, X, self.config, seed=self.seed, base_scaled=base_scaled, base_raw=base_raw)
         best_pipeline.fit(X, y)
 
         # ----------Persistence----------

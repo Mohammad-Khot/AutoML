@@ -1,6 +1,6 @@
 from .logging import log_end, log_model_score, log_start
 from .persistence import load_object, load_pipeline, save_object, save_pipeline
-from .seed import set_global_seed
+from .seed import set_global_seed, inject_seed
 
 __all__ = [
     "log_end",
@@ -10,5 +10,6 @@ __all__ = [
     "load_pipeline",
     "save_object",
     "save_pipeline",
-    "set_global_seed"
+    "set_global_seed",
+    "inject_seed"
 ]

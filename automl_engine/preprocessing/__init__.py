@@ -1,4 +1,4 @@
-from .builder import build_pipeline
+from .builder import build_pipeline, build_base_pipeline
 from .encoders import ENCODERS, select_encoder_strategy
 from .scalers import SCALERS, select_scaler_strategy
 from .selectors import get_selector
@@ -9,5 +9,6 @@ __all__ = [
     "select_scaler_strategy",
     "ENCODERS",
     "SCALERS",
-    "get_selector"
+    "get_selector",
+    "build_base_pipeline"
 ]

@@ -1,4 +1,5 @@
 # optimization/baseline.py
+
 import numpy as np
 
 from sklearn.model_selection import cross_val_score
@@ -6,9 +7,10 @@ from sklearn.model_selection import cross_val_score
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.core import AutoMLState
 from automl_engine.utils import log_model_score
+from automl_engine.evaluation import get_cv_object
 
 
-def filter_by_dummy_once(X, y, models, cv, config) -> dict:
+def filter_by_dummy_once(X, y, models, cv, config, base_scaled, base_raw) -> dict:
     survivors = {}
     mean_score = None
 
@@ -24,8 +26,7 @@ def filter_by_dummy_once(X, y, models, cv, config) -> dict:
         y = y.iloc[idx]
 
         # lightweight CV for scout
-        from automl_engine.evaluation import get_cv
-        cv = get_cv(
+        cv = get_cv_object(
             config.task,
             y,
             folds=min(getattr(config, "scout_folds", 3), cv.n_splits),
@@ -37,7 +38,7 @@ def filter_by_dummy_once(X, y, models, cv, config) -> dict:
     if not dummy_info:
         return models
 
-    dummy_pipe = build_pipeline(dummy_info, X, config)
+    dummy_pipe = build_pipeline(dummy_info, X, config, base_scaled=base_scaled, base_raw=base_raw)
 
     try:
         dummy_scores = cross_val_score(
@@ -58,7 +59,7 @@ def filter_by_dummy_once(X, y, models, cv, config) -> dict:
             print(f"[SIZE DROP] {name} high number of rows")
             continue
 
-        pipeline = build_pipeline(info, X, config)
+        pipeline = build_pipeline(info, X, config, base_scaled=base_scaled, base_raw=base_raw)
 
         try:
             scores = cross_val_score(
@@ -83,29 +84,3 @@ def filter_by_dummy_once(X, y, models, cv, config) -> dict:
     survivors["dummy"] = dummy_info
     return survivors
 
-
-def evaluate_models(X, y, models, cv, config):
-    state = AutoMLState()
-
-    if hasattr(cv, "n_splits") and cv.n_splits < 2:
-        log_model_score("ALL", "SKIPPED: insufficient CV folds", log=config.log)
-        return state
-
-    for name, info in models.items():
-
-        pipeline = build_pipeline(info, X, config)
-
-        try:
-            scores = cross_val_score(
-                pipeline, X, y, cv=cv, scoring=config.metric, n_jobs=config.n_jobs
-            )
-            mean_score = scores.mean()
-
-        except Exception as e:
-            log_model_score(name, f"SKIPPED {e}")
-            continue
-
-        log_model_score(name, round(mean_score, 4), log=config.log)
-        state.update(name, mean_score)
-
-    return state

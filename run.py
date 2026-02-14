@@ -48,9 +48,9 @@ def main():
     )
 
     engine = AutoMLEngine(config)
-    trained_pipeline, scores = engine.run("data/iris.csv")
+    trained_pipeline, scores = engine.run("data/california.csv")
 
-    # print("\nPipeline:", trained_pipeline)
+    print("\nPipeline:", trained_pipeline)
 
     print_scores(scores)
 

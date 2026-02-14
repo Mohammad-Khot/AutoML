@@ -4,17 +4,17 @@ import numpy as np
 import time
 
 
-def print_scores(scores):
-    print("\n=== Model Performance (Inner CV) ===")
+def print_scores(scores, config):
+    print("\n=== Model Performance ===")
 
     for name, value in sorted(
             scores["inner_scores"].items(),
             key=lambda x: float(x[1]),
             reverse=True
     ):
-        print(f"{name:<14} → {float(value):>6.4f}")
+        print(f"{name:<14} → {float(value):>6.4f}")\
 
-    if scores.get("outer_scores"):
+    if scores.get("outer_scores") and config.nested_cv:
         raw = scores["outer_scores"]
 
         # Keep only things that look numeric
@@ -44,15 +44,16 @@ def main():
     start = time.perf_counter()
 
     config = AutoMLConfig(
-        seed=42
+        seed=42,
+        nested_cv=True
     )
 
     engine = AutoMLEngine(config)
-    trained_pipeline, scores = engine.run("data/california.csv")
+    trained_pipeline, scores = engine.run("data/iris.csv")
 
-    print("\nPipeline:", trained_pipeline)
+    # print("\nPipeline:", trained_pipeline)
 
-    print_scores(scores)
+    print_scores(scores, config)
 
     elapsed = time.perf_counter() - start
     print(f"\nTime: {elapsed:.2f} seconds")

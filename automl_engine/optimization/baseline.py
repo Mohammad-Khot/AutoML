@@ -10,7 +10,7 @@ from automl_engine.utils import log_model_score
 from automl_engine.evaluation import get_cv_object
 
 
-def filter_by_dummy_once(X, y, models, cv, config, base_scaled, base_raw) -> dict:
+def filter_by_dummy_once(X, y, models, cv, config) -> dict:
     survivors = {}
     mean_score = None
 
@@ -38,7 +38,7 @@ def filter_by_dummy_once(X, y, models, cv, config, base_scaled, base_raw) -> dic
     if not dummy_info:
         return models
 
-    dummy_pipe = build_pipeline(dummy_info, X, config, base_scaled=base_scaled, base_raw=base_raw)
+    dummy_pipe = build_pipeline(dummy_info, X, config)
 
     try:
         dummy_scores = cross_val_score(
@@ -59,7 +59,7 @@ def filter_by_dummy_once(X, y, models, cv, config, base_scaled, base_raw) -> dic
             print(f"[SIZE DROP] {name} high number of rows")
             continue
 
-        pipeline = build_pipeline(info, X, config, base_scaled=base_scaled, base_raw=base_raw)
+        pipeline = build_pipeline(info, X, config)
 
         try:
             scores = cross_val_score(

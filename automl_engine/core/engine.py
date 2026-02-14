@@ -9,7 +9,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from automl_engine.core.registry import COST_LOW, COST_MEDIUM
 from automl_engine.data import load_table, infer_target, infer_task, run_leakage_checks
-from automl_engine.preprocessing import build_pipeline, build_base_pipeline
+from automl_engine.preprocessing import build_pipeline
 from automl_engine.utils import set_global_seed, save_pipeline, save_object
 from automl_engine.optimization import filter_by_dummy_once
 from automl_engine.evaluation import get_cv_object, resolve_metric, evaluate_models
@@ -123,20 +123,7 @@ class AutoMLEngine:
 
         # ----------Pre-filter before nested----------
         print("\n=== GLOBAL PRE-SCREEN ===")
-
-        base_scaled = build_base_pipeline(
-            X,
-            self.config,
-            force_scaling=True
-        )
-
-        base_raw = build_base_pipeline(
-            X,
-            self.config,
-            force_scaling=False
-        )
-
-        models = filter_by_dummy_once(X, y, models, outer_cv, self.config, base_scaled=base_scaled, base_raw=base_raw)
+        models = filter_by_dummy_once(X, y, models, outer_cv, self.config)
 
         if len(models) <= 1:
             print("[WARN] Only dummy model remains after filtering.")
@@ -144,23 +131,23 @@ class AutoMLEngine:
         # ----------Evaluation----------
 
         if not self.config.nested_cv:
-            print("Nested CV Disabled - using standard cross-validation.")
-            state = evaluate_models(X, y, models, outer_cv, self.config, base_scaled=base_scaled, base_raw=base_raw)
+            print("\n=== RUNNING STANDARD CROSS_EVALUATION ===")
+            state = evaluate_models(X, y, models, outer_cv, self.config)
             outer_scores = state.scores
         else:
             print("\n=== RUNNING NESTED EVALUATION ===")
             outer_result = nested_cv(X, y, models, outer_cv, self.config)
             outer_scores = getattr(outer_result, "scores", outer_result)
 
-            state = evaluate_models(X, y, models, outer_cv, self.config, base_scaled=base_scaled, base_raw=base_raw)
+            print("\n=== FINAL MODEL SELECTION ===")
+            state = evaluate_models(X, y, models, outer_cv, self.config)
 
         # ----------Final Training----------
-        print("\n=== FINAL MODEL SELECTION ===")
 
         best_model_name = select_best_model(state.scores, MODEL_PRIORITY)
         best_info = MODEL_REGISTRY[task][best_model_name]
 
-        best_pipeline = build_pipeline(best_info, X, self.config, seed=self.seed, base_scaled=base_scaled, base_raw=base_raw)
+        best_pipeline = build_pipeline(best_info, X, self.config, seed=self.seed)
         best_pipeline.fit(X, y)
 
         # ----------Persistence----------
@@ -176,9 +163,10 @@ class AutoMLEngine:
                             )
             save_object(self.config, save_dir / "config.joblib")
 
+            print(state.scores)
+            print(outer_scores)
+
         return best_pipeline, {
-            "best_model": best_model_name,
             "inner_scores": state.scores,
             "outer_scores": outer_scores,
-            "nested_enabled": self.config.nested_cv
         }

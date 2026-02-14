@@ -4,7 +4,7 @@ from automl_engine.core import AutoMLState
 from automl_engine.preprocessing import build_pipeline
 
 
-def evaluate_models(X, y, models, cv, config, base_scaled, base_raw):
+def evaluate_models(X, y, models, cv, config):
     state = AutoMLState()
 
     if hasattr(cv, "n_splits") and cv.n_splits < 2:
@@ -13,7 +13,7 @@ def evaluate_models(X, y, models, cv, config, base_scaled, base_raw):
 
     for name, info in models.items():
 
-        pipeline = build_pipeline(info, X, config, base_scaled=base_scaled, base_raw=base_raw)
+        pipeline = build_pipeline(info, X, config)
 
         try:
             scores = cross_val_score(

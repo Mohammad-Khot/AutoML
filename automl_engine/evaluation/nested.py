@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from automl_engine.preprocessing import build_pipeline, build_base_pipeline
+from automl_engine.preprocessing import build_pipeline
 from automl_engine.data import infer_task
 from automl_engine.core import select_best_model, MODEL_PRIORITY
 from automl_engine.evaluation import get_scorer_safe
@@ -25,13 +25,10 @@ def nested_cv(X, y, models, outer_cv, config):
 
     from automl_engine.evaluation import evaluate_models
 
-    for i, (outer_train_idx, outer_test_idx) in enumerate(outer_cv.split(X, y)):
-        print(f"\n--- OUTER FOLD {i+1}/{outer_cv.n_splits} ---")
+    for i, (outer_train_idx, outer_test_idx) in enumerate(outer_cv.split(X, y), 1):
+        print(f"\n--- OUTER FOLD {i}/{outer_cv.n_splits} ---")
         X_train, X_test = X.iloc[outer_train_idx], X.iloc[outer_test_idx]
         y_train, y_test = y.iloc[outer_train_idx], y.iloc[outer_test_idx]
-
-        base_scaled = build_base_pipeline(X_train, config, force_scaling=True)
-        base_raw = build_base_pipeline(X_train, config, force_scaling=False)
 
         if task == "classification" and y_train.value_counts().min() < 2:
             print("[WARN] Fold has classes with <2 samples. Using dummy model.")
@@ -39,7 +36,7 @@ def nested_cv(X, y, models, outer_cv, config):
             best_name = "dummy" if "dummy" in models else list(models.keys())[0]
             best_info = models[best_name]
 
-            pipeline = build_pipeline(best_info, X_train, config, seed=config.seed, base_scaled=base_scaled, base_raw=base_raw)
+            pipeline = build_pipeline(best_info, X_train, config, seed=config.seed)
             pipeline.fit(X_train, y_train)
 
             score = scorer(pipeline, X_test, y_test)
@@ -54,7 +51,7 @@ def nested_cv(X, y, models, outer_cv, config):
             config.seed
         )
 
-        state = evaluate_models(X_train, y_train, models, safe_inner_cv, config, base_scaled=base_scaled, base_raw=base_raw)
+        state = evaluate_models(X_train, y_train, models, safe_inner_cv, config)
 
         best_name = select_best_model(state.scores, MODEL_PRIORITY)
         selected_models.append(best_name)
@@ -67,9 +64,4 @@ def nested_cv(X, y, models, outer_cv, config):
         score = scorer(pipeline, X_test, y_test)
         outer_scores.append(score)
 
-    return {
-        "mean": float(np.mean(outer_scores)),
-        "std": float(np.std(outer_scores)),
-        "scores": outer_scores,
-        "selected_models": selected_models
-    }
+    return outer_scores

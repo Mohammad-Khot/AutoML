@@ -43,7 +43,7 @@ class AutoMLConfig:
     task: Optional[TaskType] = None
 
     cv_folds: int = 5
-    nested_cv: bool = True
+    nested_cv: bool = False
     cv_strategy: CVStrategy = "auto"
     seed: Optional[int] = None
     n_jobs: int = -1

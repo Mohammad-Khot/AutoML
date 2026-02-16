@@ -9,12 +9,10 @@ from sklearn.preprocessing import LabelEncoder
 
 from automl_engine.core.registry import COST_LOW, COST_MEDIUM
 from automl_engine.data import load_table, infer_target, infer_task, run_leakage_checks
-from automl_engine.preprocessing import build_pipeline
 from automl_engine.utils import set_global_seed, save_pipeline, save_object
-from automl_engine.optimization import filter_by_dummy_once
-from automl_engine.evaluation import get_cv_object, resolve_metric, evaluate_models
-from automl_engine.core import MODEL_REGISTRY, MODEL_PRIORITY, select_best_model, is_model_suitable, DataInfo
-from automl_engine.evaluation.nested import nested_cv
+from automl_engine.evaluation import get_cv_object, resolve_metric
+from automl_engine.core import MODEL_REGISTRY, is_model_suitable, DataInfo
+from automl_engine.training.trainer import ModelTrainer
 
 
 class AutoMLEngine:
@@ -33,7 +31,35 @@ class AutoMLEngine:
     def run(self, csv_path: str, save_dir: str | None = None) -> tuple:
         set_global_seed(self.seed)
 
-        # ----------Data Loading----------
+        X, y, task = self._prepare_data(csv_path)
+
+        data_info = DataInfo(
+            n_rows=X.shape[0],
+            n_features=X.shape[1],
+            has_categorical=X.select_dtypes(include=["object", "category"]).shape[1] > 0,
+            is_sparse=sparse.isspmatrix(X) or getattr(X, "sparse", False),
+        )
+
+        outer_cv = get_cv_object(task, y, self.config.cv_folds, self.seed)
+
+        models = dict(MODEL_REGISTRY[task])
+        models = self._filter_models(models, data_info)
+
+        trainer = ModelTrainer(self.config, self.seed)
+
+        best_pipeline, state, outer_scores = trainer.train(
+            X, y, models, outer_cv, task
+        )
+
+        if save_dir:
+            self._persist(save_dir, best_pipeline, state, outer_scores)
+
+        return best_pipeline, {
+            "inner_scores": state.scores,
+            "outer_scores": outer_scores,
+        }
+
+    def _prepare_data(self, csv_path: str):
         df = load_table(csv_path)
         target = infer_target(df, self.config.target)
 
@@ -42,40 +68,24 @@ class AutoMLEngine:
         X = df.loc[:, df.columns != target]
         y = df[target]
 
-        data_info = DataInfo(
-            n_rows=X.shape[0],
-            n_features=X.shape[1],
-            has_categorical=X.select_dtypes(include=["object", "category"]).shape[1] > 0,
-            is_sparse=sparse.isspmatrix(X) or getattr(X, "sparse", False)
-        )
-
-        # ----------Task Inference----------
         task = self.config.task or infer_task(y)
+        if task not in MODEL_REGISTRY:
+            raise ValueError(f"Unsupported task: {task}")
+
         self.config.task = task
 
         if task == "classification" and y.dtype in ("object", "category"):
             self.label_encoder = LabelEncoder()
-            y = pd.Series(self.label_encoder.fit_transform(y),
-                          index=df.index)
+            y = pd.Series(
+                self.label_encoder.fit_transform(y),
+                index=df.index
+            )
 
-        # ----------Metric Resolution----------
         self.config.metric = resolve_metric(task, self.config.metric)
 
-        # ----------Dataset Sanity----------
-        if task == "classification":
-            min_class = y.value_counts().min()
+        return X, y, task
 
-            if min_class < max(2, self.config.cv_folds):
-                raise ValueError(
-                    f"Not enough samples per class for {self.config.cv_folds}-fold CV. "
-                    f"Smallest class has {min_class} samples."
-                )
-
-        # ----------CV Setup----------
-        outer_cv = get_cv_object(task, y, self.config.cv_folds, self.seed)
-        models = MODEL_REGISTRY[task]
-
-        # ----------Model Filtering----------
+    def _filter_models(self, models, data_info):
         if self.config.allowed_models:
             models = {
                 name: info
@@ -85,88 +95,42 @@ class AutoMLEngine:
             if not models:
                 raise ValueError("allowed_models filtered out all models")
 
-        models_before_suitability = models.copy()
-
         models = {
             name: info
-            for name, info
-            in models.items()
+            for name, info in models.items()
             if is_model_suitable(name, info, data_info)
         }
-
-        rejected = [
-            name for name, info in models_before_suitability.items()
-            if not is_model_suitable(name, info, data_info)
-        ]
-
-        if rejected.__len__() != 0:
-            print("Rejected by suitability:", rejected)
 
         if not models:
             raise ValueError("All models rejected by suitability rules.")
 
         if self.config.max_compute == "low":
-            models = {
-                n: i for n, i in models.items()
-                if i["compute_cost"] == COST_LOW
-            }
+            models = {n: i for n, i in models.items() if i["compute_cost"] == COST_LOW}
         elif self.config.max_compute == "medium":
             models = {
-                n: i for n, i in models.items()
-                if i["compute_cost"] == COST_MEDIUM or i["compute_cost"] == COST_LOW
+                n: i
+                for n, i in models.items()
+                if i["compute_cost"] in (COST_LOW, COST_MEDIUM)
             }
-        elif self.config.max_compute == "high":
-            pass
 
         if not models:
-            raise ValueError(f"No models available under compute level: {self.config.max_compute}")
+            raise ValueError(
+                f"No models available under compute level: {self.config.max_compute}"
+            )
 
-        # ----------Pre-filter before nested----------
-        print("\n=== GLOBAL PRE-SCREEN ===")
-        models = filter_by_dummy_once(X, y, models, outer_cv, self.config)
+        return models
 
-        if len(models) <= 1:
-            print("[WARN] Only dummy model remains after filtering.")
+    def _persist(self, save_dir, best_pipeline, state, outer_scores):
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
 
-        # ----------Evaluation----------
+        save_pipeline(best_pipeline, save_dir / "model.joblib")
+        save_object(state.scores, save_dir / "scores.joblib")
 
-        if not self.config.nested_cv:
-            print("\n=== RUNNING STANDARD CROSS_EVALUATION ===")
-            state = evaluate_models(X, y, models, outer_cv, self.config)
-            outer_scores = state.scores
-        else:
-            print("\n=== RUNNING NESTED EVALUATION ===")
-            outer_result = nested_cv(X, y, models, outer_cv, self.config)
-            outer_scores = getattr(outer_result, "scores", outer_result)
+        if self.label_encoder:
+            save_object(self.label_encoder, save_dir / "label_encoder.joblib")
 
-            print("\n=== FINAL MODEL SELECTION ===")
-            state = evaluate_models(X, y, models, outer_cv, self.config)
+        save_object(self.config, save_dir / "config.joblib")
 
-        # ----------Final Training----------
-
-        best_model_name = select_best_model(state.scores, MODEL_PRIORITY)
-        best_info = MODEL_REGISTRY[task][best_model_name]
-
-        best_pipeline = build_pipeline(best_info, X, self.config, seed=self.seed)
-        best_pipeline.fit(X, y)
-
-        # ----------Persistence----------
-        if save_dir:
-            save_dir = Path(save_dir)
-            save_dir.mkdir(parents=True, exist_ok=True)
-
-            save_pipeline(best_pipeline, save_dir / "model.joblib")
-            save_object(state.scores, save_dir / "scores.joblib")
-
-            if self.label_encoder:
-                save_object(self.label_encoder, save_dir / "label_encoder.joblib"
-                            )
-            save_object(self.config, save_dir / "config.joblib")
-
-            print(state.scores)
-            print(outer_scores)
-
-        return best_pipeline, {
-            "inner_scores": state.scores,
-            "outer_scores": outer_scores,
-        }
+        print(state.scores)
+        print(outer_scores)

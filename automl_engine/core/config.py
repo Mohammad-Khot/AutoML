@@ -31,6 +31,7 @@ MaxCompute = Literal["low", "medium", "high"]
 LeakPolicy = Literal["error", "warn", "drop"]
 CVStrategy = Literal["auto", "kfold", "stratified", "repeated", "timeseries"]
 ImputeStrategy = Literal["auto", "simple", "knn", "iterative", "none"]
+SearchStrategy = Literal["grid", "random", "half_grid", "half_randomized", "bayesian"]
 
 
 @dataclass
@@ -47,6 +48,7 @@ class AutoMLConfig:
     cv_strategy: CVStrategy = "auto"
     seed: Optional[int] = None
     n_jobs: int = -1
+    top_k_models: int = 4
 
     # ─────────────── Preprocessing ───────────────
     scaling_mode: ScalingMode = "auto"
@@ -76,6 +78,8 @@ class AutoMLConfig:
     # ─────────────── Search Strategy ───────────────
     scout_fraction: float = 0.2
     scout_folds: int = 3
+
+    search_type: SearchStrategy = None
 
     # ─────────────── Misc ───────────────
     log: bool = True

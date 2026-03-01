@@ -1,21 +1,27 @@
 # core/engine.py
 
 from pathlib import Path
-from scipy import sparse
 import numpy as np
 import pandas as pd
 
-from sklearn.preprocessing import LabelEncoder
+from automl_engine.data import (
+    infer_target,
+    load_table,
+)
+from automl_engine.utils import (
+    set_global_seed,
+    save_object,
+)
 
-from automl_engine.core.registry import COST_LOW, COST_MEDIUM
-from automl_engine.data import load_table, infer_target, infer_task, run_leakage_checks
-from automl_engine.utils import set_global_seed, save_pipeline, save_object
-from automl_engine.evaluation import get_cv_object, resolve_metric
-from automl_engine.core import MODEL_REGISTRY, is_model_suitable, DataInfo
 from automl_engine.training.trainer import ModelTrainer
+from automl_engine.core.resolver import ExperimentResolver
+from automl_engine.core.session import TrainingSession
 
 
 class AutoMLEngine:
+    # ==========================================================
+    # Initialization
+    # ==========================================================
     def __init__(self, config):
         self.config = config
 
@@ -24,113 +30,171 @@ class AutoMLEngine:
             if config.seed is None
             else config.seed
         )
+        self.session = None
 
-        self.leaks = None
-        self.label_encoder = None
+    # ==========================================================
+    # Public Fit APIs
+    # ==========================================================
+    def fit(self, X: pd.DataFrame, y: pd.Series, save_dir: str | None = None) -> None:
+        if self.fitted:
+            raise RuntimeError("Engine has already been fitted.")
 
-    def run(self, csv_path: str, save_dir: str | None = None) -> tuple:
         set_global_seed(self.seed)
 
-        X, y, task = self._prepare_data(csv_path)
+        resolver = ExperimentResolver(self.config, self.seed)
 
-        data_info = DataInfo(
-            n_rows=X.shape[0],
-            n_features=X.shape[1],
-            has_categorical=X.select_dtypes(include=["object", "category"]).shape[1] > 0,
-            is_sparse=sparse.isspmatrix(X) or getattr(X, "sparse", False),
-        )
+        X, y, resolved = resolver.resolve(X, y)
 
-        outer_cv = get_cv_object(task, y, self.config.cv_folds, self.seed)
+        print("TASK:", resolved.task)
+        print("METRIC:", resolved.metric)
 
-        models = dict(MODEL_REGISTRY[task])
-        models = self._filter_models(models, data_info)
+        feature_names = list(X.columns)
+
+        outer_cv = resolved.cv_object
+        models = resolved.models
+
+        print("MODELS:", list(models.keys()))
 
         trainer = ModelTrainer(self.config, self.seed)
 
-        best_pipeline, state, outer_scores = trainer.train(
-            X, y, models, outer_cv, task
+        best_pipeline, state, outer_scores, best_model_name = trainer.train(
+            X, y, models, outer_cv, resolved
+        )
+
+        self.session = TrainingSession(
+            resolved=resolved,
+            pipeline=best_pipeline,
+            search_state=state,
+            outer_scores=outer_scores,
+            best_model_name=best_model_name,
+            feature_names=feature_names,
         )
 
         if save_dir:
-            self._persist(save_dir, best_pipeline, state, outer_scores)
+            self._persist(save_dir)
 
-        return best_pipeline, {
-            "inner_scores": state.scores,
-            "outer_scores": outer_scores,
-        }
+    def fit_from_df(
+            self,
+            df: pd.DataFrame,
+            target: str | None = None,
+            save_dir: str | None = None,
+    ):
+        if self.fitted:
+            raise RuntimeError("Engine has already been fitted.")
 
-    def _prepare_data(self, csv_path: str):
-        df = load_table(csv_path)
-        target = infer_target(df, self.config.target)
+        if target is None:
+            target = infer_target(df, self.config.target)
 
-        self.leaks = run_leakage_checks(df, target)
+        if target not in df.columns:
+            raise ValueError(f"Target column '{target}' not found in DataFrame.")
 
-        X = df.loc[:, df.columns != target]
+        X = df.drop(columns=[target])
         y = df[target]
 
-        task = self.config.task or infer_task(y)
-        if task not in MODEL_REGISTRY:
-            raise ValueError(f"Unsupported task: {task}")
+        return self.fit(X, y, save_dir=save_dir)
 
-        self.config.task = task
+    def fit_from_path(self, path: str, save_dir: str | None = None):
+        df = load_table(path)
+        return self.fit_from_df(df, save_dir=save_dir)
 
-        if task == "classification" and y.dtype in ("object", "category"):
-            self.label_encoder = LabelEncoder()
-            y = pd.Series(
-                self.label_encoder.fit_transform(y),
-                index=df.index
+    # ==========================================================
+    # Prediction / Reporting
+    # ==========================================================
+    def predict(self, X: pd.DataFrame):
+        if not self.fitted:
+            raise RuntimeError("Engine must be trained before prediction.")
+
+        if list(X.columns) != self.session_.feature_names:
+            raise ValueError(
+                "Input feature order/schema differs from training data."
             )
 
-        self.config.metric = resolve_metric(task, self.config.metric)
+        pipeline = self.session_.pipeline
+        preds = pipeline.predict(X)
 
-        return X, y, task
+        encoder = self.resolved.label_encoder
+        if encoder is not None:
+            preds = encoder.inverse_transform(preds)
 
-    def _filter_models(self, models, data_info):
-        if self.config.allowed_models:
-            models = {
-                name: info
-                for name, info in models.items()
-                if name in self.config.allowed_models
-            }
-            if not models:
-                raise ValueError("allowed_models filtered out all models")
+        return preds
 
-        models = {
-            name: info
-            for name, info in models.items()
-            if is_model_suitable(name, info, data_info)
+    def leaderboard(self, sort=True) -> pd.DataFrame:
+        if not self.fitted:
+            raise RuntimeError("Engine not trained yet.")
+
+        inner_scores = self.session_.search_state.scores
+        df = pd.DataFrame.from_dict(inner_scores, orient="index", columns=["Mean Score"])
+
+        if sort and "Mean Score" in df.columns:
+            df = df.sort_values("Mean Score", ascending=False)
+
+        return df
+
+    def outer_summary(self):
+        if not self.fitted:
+            raise RuntimeError("Engine not trained yet.")
+
+        if not self.config.nested_cv or self.session_.outer_scores is None:
+            return None
+
+        scores = self.session_.outer_scores
+
+        return {
+            "folds": scores,
+            "mean": float(np.mean(scores)),
+            "std": float(np.std(scores)),
         }
 
-        if not models:
-            raise ValueError("All models rejected by suitability rules.")
+    def summary(self):
+        if not self.fitted:
+            raise RuntimeError("Engine not trained yet.")
 
-        if self.config.max_compute == "low":
-            models = {n: i for n, i in models.items() if i["compute_cost"] == COST_LOW}
-        elif self.config.max_compute == "medium":
-            models = {
-                n: i
-                for n, i in models.items()
-                if i["compute_cost"] in (COST_LOW, COST_MEDIUM)
-            }
+        print("\n=== Best Model ===")
+        print(self.session_.best_model_name)
 
-        if not models:
-            raise ValueError(
-                f"No models available under compute level: {self.config.max_compute}"
-            )
+        print("\n=== Leaderboard ===")
+        print(self.leaderboard())
 
-        return models
+        outer = self.outer_summary()
+        if outer:
+            print("\n=== Outer CV Summary ===")
+            print(f"mean: {outer['mean']:.4f} ± {outer['std']:.4f}")
 
-    def _persist(self, save_dir, best_pipeline, state, outer_scores):
+    # ==========================================================
+    # Persistence
+    # ==========================================================
+    def _persist(self, save_dir):
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        save_pipeline(best_pipeline, save_dir / "model.joblib")
-        save_object(state.scores, save_dir / "scores.joblib")
+        save_object(
+            self.session_,
+            save_dir / "session.joblib"
+        )
 
-        if self.label_encoder:
-            save_object(self.label_encoder, save_dir / "label_encoder.joblib")
+        save_object(
+            self.config,
+            save_dir / "config.joblib"
+        )
 
-        save_object(self.config, save_dir / "config.joblib")
+    # ==========================================================
+    # State Management
+    # ==========================================================
+    def _reset_state(self):
+        self.session = None
 
-        print(state.scores)
-        print(outer_scores)
+    @property
+    def resolved(self):
+        if self.session is None:
+            raise RuntimeError("Engine not fitted yet.")
+        return self.session.resolved
+
+    @property
+    def fitted(self):
+        return self.session is not None
+
+    @property
+    def session_(self):
+        if not self.fitted:
+            raise RuntimeError("Engine not fitted yet.")
+        return self.session

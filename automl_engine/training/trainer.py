@@ -1,4 +1,5 @@
 # automl_engine/training/trainer.py
+import time
 
 from automl_engine.core import MODEL_PRIORITY, select_best_model
 from automl_engine.preprocessing import build_pipeline
@@ -12,7 +13,7 @@ class ModelTrainer:
         self.config = config
         self.seed = seed
 
-    def train(self, X, y, models, outer_cv, task):
+    def train(self, X, y, models, outer_cv, resolved):
 
         # ---------- Scout ----------
         print("\n=== GLOBAL PRE-SCREEN ===")
@@ -21,15 +22,15 @@ class ModelTrainer:
         # ---------- Evaluation ----------
         if not self.config.nested_cv:
             print("\n=== RUNNING STANDARD CROSS_EVALUATION ===")
-            state = evaluate_models(X, y, models, outer_cv, self.config)
+            state = evaluate_models(X, y, models, outer_cv, self.config, resolved)
             outer_scores = state.scores
         else:
             print("\n=== RUNNING NESTED EVALUATION ===")
-            outer_result = nested_cv(X, y, models, outer_cv, self.config)
+            outer_result = nested_cv(X, y, models, outer_cv, self.config, resolved)
             outer_scores = getattr(outer_result, "scores", outer_result)
 
             print("\n=== FINAL MODEL SELECTION ===")
-            state = evaluate_models(X, y, models, outer_cv, self.config)
+            state = evaluate_models(X, y, models, outer_cv, self.config, resolved)
 
         if not state.scores:
             raise RuntimeError("No models successfully evaluated.")
@@ -47,4 +48,4 @@ class ModelTrainer:
 
         best_pipeline.fit(X, y)
 
-        return best_pipeline, state, outer_scores
+        return best_pipeline, state, outer_scores, best_model_name

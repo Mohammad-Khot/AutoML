@@ -100,26 +100,26 @@ class ExperimentResolver:
 
         if cfg.allowed_models:
             models = {
-                n: i for n, i in models.items()
-                if n in cfg.allowed_models
+                name: info for name, info in models.items()
+                if name in cfg.allowed_models
             }
 
         models = {
-            n: i
-            for n, i in models.items()
-            if is_model_suitable(n, i, data_info)
+            name: info
+            for name, info in models.items()
+            if is_model_suitable(name, info, data_info)
         }
 
         if cfg.max_compute == "low":
             models = {
-                n: i for n, i in models.items()
-                if i["compute_cost"] == COST_LOW
+                name: info for name, info in models.items()
+                if info["compute_cost"] == COST_LOW
             }
 
         elif cfg.max_compute == "medium":
             models = {
-                n: i for n, i in models.items()
-                if i["compute_cost"] in (COST_LOW, COST_MEDIUM)
+                name: info for name, info in models.items()
+                if info["compute_cost"] in (COST_LOW, COST_MEDIUM)
             }
 
         if not models:

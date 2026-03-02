@@ -1,3 +1,5 @@
+# automl_engine/reporting/__init__.py
+
 from .logger import log_model_score, log_start, log_end
 from .run_report import print_run_header
 from .console import (

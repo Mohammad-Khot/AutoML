@@ -1,5 +1,6 @@
 # core/config.py
 
+
 from dataclasses import dataclass
 from typing import Optional, Literal, get_args, Any, Type, Self
 

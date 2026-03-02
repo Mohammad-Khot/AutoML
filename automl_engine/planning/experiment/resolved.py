@@ -1,6 +1,8 @@
+# core/resolved.py
+
 from dataclasses import dataclass
-from sklearn.base import BaseEstimator
 from typing import Any
+
 
 @dataclass
 class ResolvedConfig:

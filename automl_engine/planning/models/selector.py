@@ -1,4 +1,6 @@
-from .metadata import DataInfo
+# core/selector.py
+
+from automl_engine.planning.metadata import DataInfo
 
 MAX_ROWS = 200_000
 MAX_FEATURES = 5000

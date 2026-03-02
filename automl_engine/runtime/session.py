@@ -1,6 +1,8 @@
+# core/session.py
+
 from dataclasses import dataclass
 from typing import Any
-from .resolved import ResolvedConfig
+from automl_engine.planning.experiment.resolved import ResolvedConfig
 
 
 @dataclass

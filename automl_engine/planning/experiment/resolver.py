@@ -1,3 +1,5 @@
+# core/resolver.py
+
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
@@ -11,14 +13,19 @@ from automl_engine.evaluation import (
     get_cv_object,
 )
 
-from automl_engine.core import (
+from automl_engine.planning.models.registry import (
     MODEL_REGISTRY,
-    DataInfo,
+    COST_LOW,
+    COST_MEDIUM,
+)
+
+from automl_engine.planning.models.selector import (
     is_model_suitable,
 )
 
-from automl_engine.core.registry import COST_LOW, COST_MEDIUM
-from .resolved import ResolvedConfig
+from automl_engine.planning.metadata import DataInfo
+
+from automl_engine.planning.experiment.resolved import ResolvedConfig
 
 
 class ExperimentResolver:

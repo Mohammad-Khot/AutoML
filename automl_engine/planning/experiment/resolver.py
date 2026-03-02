@@ -1,4 +1,4 @@
-# core/resolver.py
+# planning/experiment/resolver.py
 
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
@@ -29,61 +29,72 @@ from automl_engine.planning.experiment.resolved import ResolvedConfig
 
 
 class ExperimentResolver:
+    def __init__(self, config: object, seed: int) -> None:
+        """
+        Initialize the ExperimentResolver.
 
-    def __init__(self, config, seed):
+        Args:
+            config: Experiment configuration object containing user-defined settings.
+            seed: Random seed used for reproducibility.
+        """
         self.config = config
         self.seed = seed
 
-    def resolve(self, X: pd.DataFrame, y: pd.Series):
+    def resolve(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+    ) -> tuple[pd.DataFrame, pd.Series, ResolvedConfig]:
+        """
+        Resolve the full experiment configuration from raw inputs.
 
+        This includes leakage detection, task inference, optional label encoding,
+        metric resolution, model filtering, and cross-validation setup.
+
+        Args:
+            X: Feature dataframe.
+            y: Target series.
+
+        Returns:
+            A tuple containing:
+                - Processed feature dataframe
+                - Processed target series
+                - Fully resolved experiment configuration
+        """
         X = X.copy()
         y = y.copy()
 
-        # -------------------------
         # Leakage
-        # -------------------------
         leaks = run_leakage_checks(X, y)
 
-        # -------------------------
         # Task inference
-        # -------------------------
-        task = self.config.task or infer_task(y)
+        task: str = self.config.task or infer_task(y)
 
-        # -------------------------
         # Label encoding
-        # -------------------------
-        label_encoder = None
+        label_encoder: LabelEncoder | None = None
         if task == "classification" and not pd.api.types.is_numeric_dtype(y):
             label_encoder = LabelEncoder()
             y = pd.Series(
                 label_encoder.fit_transform(y),
-                index=y.index
+                index=y.index,
             )
 
-        # -------------------------
         # Metric resolution
-        # -------------------------
-        metric = resolve_metric(task, self.config.metric)
+        metric: str = resolve_metric(task, self.config.metric)
 
-        # -------------------------
         # Data info
-        # -------------------------
-        data_info = DataInfo.from_data(X, y)
+        data_info: DataInfo = DataInfo.from_data(X, y)
 
-        # -------------------------
         # Models
-        # -------------------------
-        models = dict(MODEL_REGISTRY[task])
+        models: dict[str, dict] = dict(MODEL_REGISTRY[task])
         models = self._filter_models(models, data_info)
 
-        # -------------------------
-        # CV
-        # -------------------------
-        cv_object = get_cv_object(
+        # Cross-validation object
+        cv_object: object = get_cv_object(
             task,
             y,
             self.config.cv_folds,
-            self.seed
+            self.seed,
         )
 
         resolved = ResolvedConfig(
@@ -98,16 +109,35 @@ class ExperimentResolver:
 
         return X, y, resolved
 
-    # -------------------------
-    # Model filtering moved here
-    # -------------------------
-    def _filter_models(self, models, data_info):
+    def _filter_models(
+        self,
+        models: dict[str, dict],
+        data_info: DataInfo,
+    ) -> dict[str, dict]:
+        """
+        Filter models based on configuration constraints and dataset properties.
 
+        Applies:
+            - Allowed model whitelist
+            - Suitability checks
+            - Compute cost constraints
+
+        Args:
+            models: Dictionary of model metadata keyed by model name.
+            data_info: Metadata about the dataset.
+
+        Returns:
+            Filtered dictionary of models.
+
+        Raises:
+            ValueError: If no models remain after filtering.
+        """
         cfg = self.config
 
         if cfg.allowed_models:
             models = {
-                name: info for name, info in models.items()
+                name: info
+                for name, info in models.items()
                 if name in cfg.allowed_models
             }
 
@@ -119,13 +149,15 @@ class ExperimentResolver:
 
         if cfg.max_compute == "low":
             models = {
-                name: info for name, info in models.items()
+                name: info
+                for name, info in models.items()
                 if info["compute_cost"] == COST_LOW
             }
 
         elif cfg.max_compute == "medium":
             models = {
-                name: info for name, info in models.items()
+                name: info
+                for name, info in models.items()
                 if info["compute_cost"] in (COST_LOW, COST_MEDIUM)
             }
 

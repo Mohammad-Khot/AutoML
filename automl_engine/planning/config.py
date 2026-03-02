@@ -1,24 +1,23 @@
-# core/config.py
-
+# planning/config.py
 
 from dataclasses import dataclass
 from typing import Optional, Literal, get_args, Any, Type, Self
 
-METRIC_TASK_MAP = {
+
+METRIC_TASK_MAP: dict[str, str] = {
     "accuracy": "classification",
     "f1": "classification",
     "roc_auc": "classification",
-
     "rmse": "regression",
     "mae": "regression",
     "r2": "regression",
 }
 
-CLASSIFICATION_METRICS = {
+CLASSIFICATION_METRICS: set[str] = {
     metric for metric, task in METRIC_TASK_MAP.items() if task == "classification"
 }
 
-REGRESSION_METRICS = {
+REGRESSION_METRICS: set[str] = {
     metric for metric, task in METRIC_TASK_MAP.items() if task == "regression"
 }
 
@@ -32,12 +31,20 @@ MaxCompute = Literal["low", "medium", "high"]
 LeakPolicy = Literal["error", "warn", "drop"]
 CVStrategy = Literal["auto", "kfold", "stratified", "repeated", "timeseries"]
 ImputeStrategy = Literal["auto", "simple", "knn", "iterative", "none"]
-SearchStrategy = Literal["grid", "random", "half_grid", "half_randomized", "bayesian"]
+SearchStrategy = Literal[
+    "grid", "random", "half_grid", "half_randomized", "bayesian"
+]
 
 
 @dataclass
 class AutoMLConfig:
-    """Central configuration for AutoML pipeline."""
+    """
+    Central configuration object for controlling the AutoML pipeline.
+
+    This class validates consistency between task and metric, enforces
+    logical parameter constraints (e.g., CV settings, time budget),
+    and provides convenience constructors for fast and thorough modes.
+    """
 
     # ─────────────── Core Settings ───────────────
     metric: Optional[MetricType] = None
@@ -67,26 +74,31 @@ class AutoMLConfig:
     max_compute: MaxCompute = "high"
 
     allowed_models: Optional[list[str]] = None
-    blocked_models: Optional[list[str]] = None  # Planned feature
-    time_budget_soft: int = 600  # advisory budget used to plan search aggressiveness,NOT a hard termination limit
+    blocked_models: Optional[list[str]] = None
+    time_budget_soft: int = 600
 
     min_improvement_over_dummy: float = 0.01
 
     # ─────────────── Data Quality ───────────────
-    drop_leaky_columns: LeakPolicy = None  # Add logging
+    drop_leaky_columns: Optional[LeakPolicy] = None
     id_threshold: float = 0.95
 
     # ─────────────── Search Strategy ───────────────
     scout_fraction: float = 0.2
     scout_folds: int = 3
-
-    search_type: SearchStrategy = None
+    search_type: Optional[SearchStrategy] = None
 
     # ─────────────── Misc ───────────────
     log: bool = True
 
     @classmethod
     def fast(cls, **overrides: Any) -> Self:
+        """
+        Create a lightweight configuration optimized for speed.
+
+        Returns:
+            AutoMLConfig: Configuration tuned for quick experimentation.
+        """
         return cls(
             cv_folds=3,
             nested_cv=False,
@@ -94,11 +106,17 @@ class AutoMLConfig:
             scout_fraction=0.1,
             scout_folds=2,
             time_budget_soft=120,
-            **overrides
+            **overrides,
         )
 
     @classmethod
     def thorough(cls, **overrides: Any) -> Self:
+        """
+        Create a comprehensive configuration optimized for robustness.
+
+        Returns:
+            AutoMLConfig: Configuration tuned for exhaustive evaluation.
+        """
         return cls(
             cv_folds=10,
             nested_cv=True,
@@ -106,11 +124,23 @@ class AutoMLConfig:
             scout_fraction=0.4,
             scout_folds=5,
             time_budget_soft=1800,
-            **overrides
+            **overrides,
         )
 
     @staticmethod
     def _validate_literal(value: Any, literal_type: Type, name: str) -> None:
+        """
+        Validate that a value belongs to a given Literal type.
+
+        Args:
+            value: The value to validate.
+            literal_type: The Literal type to validate against.
+            name: The parameter name for error reporting.
+
+        Raises:
+            TypeError: If the provided type is not a Literal.
+            ValueError: If the value is not within the allowed Literal options.
+        """
         args = get_args(literal_type)
 
         if not args:
@@ -120,7 +150,13 @@ class AutoMLConfig:
             allowed = ", ".join(map(str, args))
             raise ValueError(f"invalid {name}: {value}. Allowed: {allowed}")
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """
+        Perform validation checks after initialization.
+
+        Ensures consistency between metric and task, validates
+        literal-typed fields, and enforces logical parameter constraints.
+        """
         self._validate_literal(self.scaling_mode, ScalingMode, "scaling_mode")
         self._validate_literal(self.scaler_type, ScalerType, "scaler_type")
         self._validate_literal(self.encoding_mode, EncodingMode, "encoding_mode")
@@ -141,15 +177,24 @@ class AutoMLConfig:
             expected = METRIC_TASK_MAP[self.metric]
             if expected != self.task:
                 raise ValueError(
-                    f"Metric '{self.metric}' belongs to {expected}, "
-                    f"not {self.task}"
+                    f"Metric '{self.metric}' belongs to {expected}, not {self.task}"
                 )
 
         if self.time_budget_soft <= 0:
-            raise ValueError("time_budget must be positive")
+            raise ValueError("time_budget_soft must be positive")
 
         if self.nested_cv and self.scout_folds >= self.cv_folds:
             raise ValueError("scout_folds must be smaller than cv_folds")
 
-    def __repr__(self):
-        return f"AutoMLConfig(task={self.task}, metric={self.metric}, cv={self.cv_folds})"
+    def __repr__(self) -> str:
+        """
+        Return a concise string representation of the configuration.
+
+        Returns:
+            str: Simplified configuration summary.
+        """
+        return (
+            f"AutoMLConfig(task={self.task}, "
+            f"metric={self.metric}, "
+            f"cv={self.cv_folds})"
+        )

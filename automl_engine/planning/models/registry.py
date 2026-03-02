@@ -1,4 +1,4 @@
-# core/registry.py
+# planning/models/registry.py
 
 from types import MappingProxyType
 
@@ -269,14 +269,29 @@ MODEL_PRIORITY = {
 
 
 def get_model(task: str, name: str) -> BaseEstimator:
+    """
+    Retrieve and instantiate a model from the registry.
+
+    Parameters
+    ----------
+    task : str
+        The task type. Must be either "classification" or "regression".
+    name : str
+        The model identifier defined in MODEL_REGISTRY for the given task.
+
+    Returns
+    -------
+    BaseEstimator
+        A newly instantiated scikit-learn compatible estimator.
+
+    Raises
+    ------
+    ValueError
+        If the task or model name does not exist in the registry.
+    """
     try:
-        factory = MODEL_REGISTRY[task][name]["model"]()
-        return factory
-    except KeyError:
-        raise ValueError(f"Unknown model {name} for task {task}")
+        model_factory = MODEL_REGISTRY[task][name]["model"]
+    except KeyError as exc:
+        raise ValueError(f"Unknown model '{name}' for task '{task}'.") from exc
 
-
-for task in MODEL_REGISTRY:
-    for name in MODEL_REGISTRY[task]:
-        if name not in MODEL_PRIORITY:
-            raise ValueError(f"Priority missing for model: {name}")
+    return model_factory()

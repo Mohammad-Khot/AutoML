@@ -16,6 +16,8 @@ from automl_engine.utils import (
 from automl_engine.training.trainer import ModelTrainer
 from automl_engine.core.resolver import ExperimentResolver
 from automl_engine.core.session import TrainingSession
+from automl_engine.utils.run_header import print_run_header
+from automl_engine.utils.console import print_section
 
 
 class AutoMLEngine:
@@ -45,16 +47,25 @@ class AutoMLEngine:
 
         X, y, resolved = resolver.resolve(X, y)
 
-        print("TASK:", resolved.task)
-        print("METRIC:", resolved.metric)
+        if self.config.log:
+            print_run_header(
+                task=resolved.task,
+                metric=resolved.metric,
+                n_samples=len(X),
+                n_features=X.shape[1],
+                models=resolved.models,
+                seed=self.seed,
+                cv=resolved.cv_object,
+                search_type=self.config.search_type,
+            )
 
         feature_names = list(X.columns)
 
         outer_cv = resolved.cv_object
         models = resolved.models
 
-        print("MODELS:", list(models.keys()))
-
+        if self.config.log:
+            print_section("Training")
         trainer = ModelTrainer(self.config, self.seed)
 
         best_pipeline, state, outer_scores, best_model_name = trainer.train(
@@ -149,15 +160,15 @@ class AutoMLEngine:
         if not self.fitted:
             raise RuntimeError("Engine not trained yet.")
 
-        print("\n=== Best Model ===")
+        print_section("Best Model")
         print(self.session_.best_model_name)
 
-        print("\n=== Leaderboard ===")
+        print_section("Leaderboard")
         print(self.leaderboard())
 
         outer = self.outer_summary()
         if outer:
-            print("\n=== Outer CV Summary ===")
+            print_section("Outer CV Summary")
             print(f"mean: {outer['mean']:.4f} ± {outer['std']:.4f}")
 
     # ==========================================================

@@ -31,7 +31,12 @@ def scout_models(X, y, models, cv, config):
             seed=config.seed
         )
 
-        print(f"[SCOUT] Using {k} samples and {cv.n_splits} folds")
+        log_model_score(
+            "SCOUT",
+            f"Using {k} samples and {cv.n_splits} folds",
+            stage="SCOUT",
+            log=config.log,
+        )
 
     scorer = get_scorer_safe(config.metric)
 
@@ -51,10 +56,15 @@ def scout_models(X, y, models, cv, config):
 
             if np.isfinite(mean_score):
                 score_table[name] = mean_score
-                log_model_score(name, round(mean_score, 4), log=config.log)
+                log_model_score(name, round(mean_score, 4), stage="SCOUT", log=config.log)
 
         except Exception as e:
-            print(f"[SCOUT DROP] {name} crashed: {e}")
+            log_model_score(
+                name,
+                f"DROPPED ({type(e).__name__})",
+                stage="SCOUT",
+                log=config.log,
+            )
 
     if not score_table:
         raise ValueError("All models failed during scout phase")

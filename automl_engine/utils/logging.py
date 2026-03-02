@@ -1,7 +1,7 @@
 import time
 
 
-def log_model_score(name: object, score: object, stage="", log: bool = False):
+def log_model_score(name: object, score: object, stage="GENERAL", log: bool = False):
     if log:
         prefix = f"[{stage}]" if stage else "[MODEL]"
 

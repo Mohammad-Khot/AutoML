@@ -7,7 +7,7 @@ from automl_engine.optimization.param_grid import get_param_grid
 from automl_engine.optimization.search_executor import run_grid_search
 
 
-def evaluate_models(X, y, models, cv, config, resolved):
+def evaluate_models(X, y, models, cv, config, resolved, stage):
     """
     Evaluate candidate models using CV.
 
@@ -23,10 +23,12 @@ def evaluate_models(X, y, models, cv, config, resolved):
     state = AutoMLState()
 
     # ---------- CV sanity ----------
+
     if hasattr(cv, "n_splits") and cv.n_splits < 2:
         log_model_score(
             "ALL",
             "SKIPPED: insufficient CV folds",
+            stage=stage,
             log=config.log,
         )
         return state
@@ -59,7 +61,6 @@ def evaluate_models(X, y, models, cv, config, resolved):
                     X=X,
                     y=y,
                     cv=cv,
-                    scoring=metric,
                 )
 
             # ---------- Standard CV ----------
@@ -80,7 +81,8 @@ def evaluate_models(X, y, models, cv, config, resolved):
         except Exception as e:
             log_model_score(
                 name,
-                f"SKIPPED ({type(e).__name__}: {e})",
+                f"ERROR ({type(e).__name__}: {e})",
+                stage=stage,
                 log=config.log,
             )
             continue
@@ -89,6 +91,7 @@ def evaluate_models(X, y, models, cv, config, resolved):
         log_model_score(
             name,
             round(mean_score, 4),
+            stage=stage,
             log=config.log,
         )
 

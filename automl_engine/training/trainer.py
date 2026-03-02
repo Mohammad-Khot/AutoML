@@ -1,10 +1,10 @@
 # automl_engine/training/trainer.py
-import time
 
 from automl_engine.core import MODEL_PRIORITY, select_best_model
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.evaluation import evaluate_models, scout_models
-from automl_engine.evaluation.nested import nested_cv
+from automl_engine.orchestration.nested import nested_cv
+from automl_engine.utils.console import print_section
 
 
 class ModelTrainer:
@@ -16,21 +16,25 @@ class ModelTrainer:
     def train(self, X, y, models, outer_cv, resolved):
 
         # ---------- Scout ----------
-        print("\n=== GLOBAL PRE-SCREEN ===")
+        if self.config.log:
+            print_section("Global Pre-Screen")
         models, _ = scout_models(X, y, models, outer_cv, self.config)
 
         # ---------- Evaluation ----------
         if not self.config.nested_cv:
-            print("\n=== RUNNING STANDARD CROSS_EVALUATION ===")
-            state = evaluate_models(X, y, models, outer_cv, self.config, resolved)
+            if self.config.log:
+                print_section("Standard Cross Validation")
+            state = evaluate_models(X, y, models, outer_cv, self.config, resolved, "OUTER_CV")
             outer_scores = state.scores
         else:
-            print("\n=== RUNNING NESTED EVALUATION ===")
+            if self.config.log:
+                print_section("Nested Evaluation")
             outer_result = nested_cv(X, y, models, outer_cv, self.config, resolved)
             outer_scores = getattr(outer_result, "scores", outer_result)
 
-            print("\n=== FINAL MODEL SELECTION ===")
-            state = evaluate_models(X, y, models, outer_cv, self.config, resolved)
+            if self.config.log:
+                print_section("Final Model Fit")
+            state = evaluate_models(X, y, models, outer_cv, self.config, resolved, "FINAL_FIT")
 
         if not state.scores:
             raise RuntimeError("No models successfully evaluated.")
@@ -46,6 +50,8 @@ class ModelTrainer:
                 best_info, X, self.config, seed=self.seed
             )
 
+        if self.config.log:
+            print_section("Deployment Model Ready")
         best_pipeline.fit(X, y)
 
         return best_pipeline, state, outer_scores, best_model_name

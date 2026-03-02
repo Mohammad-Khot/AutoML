@@ -1,9 +1,9 @@
-import numpy as np
-
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.core import select_best_model, MODEL_PRIORITY
 from automl_engine.evaluation import get_scorer_safe
-from .cv import get_cv_object
+from automl_engine.evaluation.cv import get_cv_object
+from automl_engine.utils import log_model_score
+from automl_engine.utils.console import print_subsection
 
 
 def nested_cv(X, y, models, outer_cv, config, resolved):
@@ -39,7 +39,8 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
     for i, (outer_train_idx, outer_test_idx) in enumerate(
         outer_cv.split(X, y), 1
     ):
-        print(f"\n--- OUTER FOLD {i}/{outer_cv.n_splits} ---")
+        if config.log:
+            print_subsection(f"Outer Fold {i}/{outer_cv.n_splits}")
 
         X_train = X.iloc[outer_train_idx]
         X_test = X.iloc[outer_test_idx]
@@ -90,6 +91,7 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
             safe_inner_cv,
             config,
             resolved,
+            f"INNER-{i}"
         )
 
         if not state.scores:
@@ -121,6 +123,12 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
         pipeline.fit(X_train, y_train)
 
         score = scorer(pipeline, X_test, y_test)
+        log_model_score(
+            best_name,
+            score,
+            stage=f"OUTER-{i}",
+            log=config.log
+        )
         outer_scores.append(score)
 
     return outer_scores

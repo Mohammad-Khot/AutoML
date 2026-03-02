@@ -1,3 +1,6 @@
+from automl_engine.utils.console import CONSOLE_WIDTH
+
+
 def print_run_header(
     *,
     task,
@@ -9,9 +12,11 @@ def print_run_header(
     cv,
     search_type,
 ):
-    print("\n" + "=" * 48)
-    print("               AUTO ML RUN")
-    print("=" * 48)
+    line = "=" * CONSOLE_WIDTH
+
+    print("\n" + line)
+    print("AUTO ML RUN".center(CONSOLE_WIDTH))
+    print(line)
 
     print(f"Task          : {task}")
     print(f"Metric        : {metric}")
@@ -27,4 +32,4 @@ def print_run_header(
 
     print(f"Search        : {search_type}")
 
-    print("=" * 48 + "\n")
+    print("=" * CONSOLE_WIDTH + "\n")

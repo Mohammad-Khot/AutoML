@@ -18,6 +18,7 @@ def evaluate_models(X, y, models, cv, config, resolved, stage):
     cv : cross-validator
     config : user runtime policy
     resolved : resolved experiment truth
+    stage: stage of execution
     """
 
     state = AutoMLState()

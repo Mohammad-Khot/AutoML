@@ -50,8 +50,6 @@ class ModelTrainer:
                 best_info, X, self.config, seed=self.seed
             )
 
-        if self.config.log:
-            print_section("Deployment Model Ready")
         best_pipeline.fit(X, y)
 
         return best_pipeline, state, outer_scores, best_model_name

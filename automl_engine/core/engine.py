@@ -16,8 +16,9 @@ from automl_engine.utils import (
 from automl_engine.training.trainer import ModelTrainer
 from automl_engine.core.resolver import ExperimentResolver
 from automl_engine.core.session import TrainingSession
-from automl_engine.utils.run_header import print_run_header
-from automl_engine.utils.console import print_section
+from automl_engine.utils.run_loggerr import print_run_header
+from automl_engine.utils.console import print_section, print_result_block, CONSOLE_WIDTH
+from automl_engine.utils.table import print_row
 
 
 class AutoMLEngine:
@@ -25,6 +26,7 @@ class AutoMLEngine:
     # Initialization
     # ==========================================================
     def __init__(self, config):
+        self._runtime = None
         self.config = config
 
         self.seed = (
@@ -38,6 +40,9 @@ class AutoMLEngine:
     # Public Fit APIs
     # ==========================================================
     def fit(self, X: pd.DataFrame, y: pd.Series, save_dir: str | None = None) -> None:
+        import time
+        start_time = time.perf_counter()
+
         if self.fitted:
             raise RuntimeError("Engine has already been fitted.")
 
@@ -64,8 +69,6 @@ class AutoMLEngine:
         outer_cv = resolved.cv_object
         models = resolved.models
 
-        if self.config.log:
-            print_section("Training")
         trainer = ModelTrainer(self.config, self.seed)
 
         best_pipeline, state, outer_scores, best_model_name = trainer.train(
@@ -80,6 +83,9 @@ class AutoMLEngine:
             best_model_name=best_model_name,
             feature_names=feature_names,
         )
+
+        runtime = time.perf_counter() - start_time
+        self._runtime = runtime
 
         if save_dir:
             self._persist(save_dir)
@@ -160,16 +166,22 @@ class AutoMLEngine:
         if not self.fitted:
             raise RuntimeError("Engine not trained yet.")
 
-        print_section("Best Model")
-        print(self.session_.best_model_name)
-
         print_section("Leaderboard")
-        print(self.leaderboard())
+
+        df = self.leaderboard()
+
+        for name, score in df["Mean Score"].items():
+            print_row(name, f"{score:.4f}")
 
         outer = self.outer_summary()
-        if outer:
-            print_section("Outer CV Summary")
-            print(f"mean: {outer['mean']:.4f} ± {outer['std']:.4f}")
+        if outer and self.config.log:
+            print_result_block(
+                model=self.session_.best_model_name,
+                metric=self.resolved.metric,
+                mean=outer["mean"],
+                std=outer["std"],
+                runtime=getattr(self, "_runtime", 0.0),
+            )
 
     # ==========================================================
     # Persistence

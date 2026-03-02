@@ -32,7 +32,7 @@ def scout_models(X, y, models, cv, config):
         )
 
         log_model_score(
-            "SCOUT",
+            "SYSTEM",
             f"Using {k} samples and {cv.n_splits} folds",
             stage="SCOUT",
             log=config.log,

@@ -2,8 +2,7 @@ from automl_engine.preprocessing import build_pipeline
 from automl_engine.core import select_best_model, MODEL_PRIORITY
 from automl_engine.evaluation import get_scorer_safe
 from automl_engine.evaluation.cv import get_cv_object
-from automl_engine.utils import log_model_score
-from automl_engine.utils.console import print_subsection
+from automl_engine.reporting import print_subsection, log_model_score
 
 
 def nested_cv(X, y, models, outer_cv, config, resolved):

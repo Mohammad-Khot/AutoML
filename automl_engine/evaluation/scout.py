@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.model_selection import cross_val_score, train_test_split
 
 from automl_engine.preprocessing import build_pipeline
-from automl_engine.utils import log_model_score
+from automl_engine.reporting import log_model_score
 from automl_engine.evaluation import get_cv_object, get_scorer_safe
 
 

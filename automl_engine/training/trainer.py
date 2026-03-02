@@ -4,7 +4,7 @@ from automl_engine.core import MODEL_PRIORITY, select_best_model
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.evaluation import evaluate_models, scout_models
 from automl_engine.orchestration.nested import nested_cv
-from automl_engine.utils.console import print_section
+from automl_engine.reporting import print_section
 
 
 class ModelTrainer:

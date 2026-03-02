@@ -1,6 +1,6 @@
 from sklearn.model_selection import cross_val_score
 
-from automl_engine.utils import log_model_score
+from automl_engine.reporting import log_model_score
 from automl_engine.core import AutoMLState
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.optimization.param_grid import get_param_grid

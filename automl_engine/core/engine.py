@@ -16,9 +16,7 @@ from automl_engine.utils import (
 from automl_engine.training.trainer import ModelTrainer
 from automl_engine.core.resolver import ExperimentResolver
 from automl_engine.core.session import TrainingSession
-from automl_engine.utils.run_loggerr import print_run_header
-from automl_engine.utils.console import print_section, print_result_block, CONSOLE_WIDTH
-from automl_engine.utils.table import print_row
+from automl_engine.reporting import print_section, print_result_block, print_run_header, print_row
 
 
 class AutoMLEngine:

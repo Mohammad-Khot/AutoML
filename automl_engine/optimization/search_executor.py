@@ -1,4 +1,4 @@
-# automl_engine/optimization/search_executor.py
+# optimization/search_executor.py
 
 from sklearn.model_selection import GridSearchCV
 

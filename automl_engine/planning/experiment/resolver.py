@@ -1,6 +1,7 @@
 # planning/experiment/resolver.py
 
 import pandas as pd
+from typing import Literal
 from sklearn.preprocessing import LabelEncoder
 
 from automl_engine.data import (
@@ -68,7 +69,7 @@ class ExperimentResolver:
         leaks = run_leakage_checks(X, y)
 
         # Task inference
-        task: str = self.config.task or infer_task(y)
+        task: Literal["classification", "regression"] = self.config.task or infer_task(y)
 
         # Label encoding
         label_encoder: LabelEncoder | None = None

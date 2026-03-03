@@ -1,19 +1,68 @@
+# preprocessing/selectors.py
+from typing import Literal, Optional, Union
+
+from sklearn.base import BaseEstimator
 from sklearn.feature_selection import (
     VarianceThreshold,
     SelectKBest,
     mutual_info_regression,
     mutual_info_classif,
-    SelectFromModel
+    SelectFromModel,
 )
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import Lasso, LogisticRegression
 
 
-def safe_k(total_features, k):
+def safe_k(total_features: int, k: int) -> int:
+    """
+    Safely bound the number of selected features.
+
+    Ensures that the returned value is at least 1 and at most
+    the total number of available features.
+
+    Parameters
+    ----------
+    total_features : int
+        Total number of features available.
+    k : int
+        Desired number of features.
+
+    Returns
+    -------
+    int
+        A value between 1 and total_features (inclusive).
+    """
     return max(1, min(k, total_features))
 
 
-def get_selector(task, mode="auto", n_features=None):
+def get_selector(
+    task: Literal["classification", "regression"],
+    mode: Literal["auto", "none", "variance", "l1", "tree"] = "auto",
+    n_features: Optional[int] = None,
+) -> Union[str, BaseEstimator]:
+    """
+    Return an appropriate feature selection strategy based on task and mode.
+
+    Parameters
+    ----------
+    task : {"classification", "regression"}
+        The type of machine learning task.
+    mode : {"auto", "none", "variance", "l1", "tree"}, default="auto"
+        The feature selection strategy to use.
+    n_features : int, optional
+        Total number of input features.
+
+    Returns
+    -------
+    Union[str, BaseEstimator]
+        A scikit-learn feature selector instance or "passthrough"
+        if no selection should be applied.
+
+    Raises
+    ------
+    ValueError
+        If an unknown selector mode is provided.
+    """
     if mode == "none" or not n_features:
         return "passthrough"
 
@@ -23,9 +72,8 @@ def get_selector(task, mode="auto", n_features=None):
             return "passthrough"
 
         if task == "classification":
-            return SelectKBest(mutual_info_classif, k=20)
-        else:
-            return SelectKBest(mutual_info_regression, k=20)
+            return SelectKBest(score_func=mutual_info_classif, k=k)
+        return SelectKBest(score_func=mutual_info_regression, k=k)
 
     if mode == "variance":
         return VarianceThreshold(threshold=0.0)
@@ -35,10 +83,14 @@ def get_selector(task, mode="auto", n_features=None):
             return "passthrough"
 
         if task == "classification":
-            base = LogisticRegression(penalty="l1", solver="liblinear")
+            base: BaseEstimator = LogisticRegression(
+                penalty="l1",
+                solver="liblinear",
+            )
         else:
             base = Lasso(alpha=0.1)
-        return SelectFromModel(base)
+
+        return SelectFromModel(estimator=base)
 
     if mode == "tree":
         if n_features < 3:
@@ -48,6 +100,7 @@ def get_selector(task, mode="auto", n_features=None):
             base = RandomForestClassifier(n_estimators=100)
         else:
             base = RandomForestRegressor(n_estimators=100)
-        return SelectFromModel(base)
 
-    raise ValueError(f"Unknown selector mode : {mode}")
+        return SelectFromModel(estimator=base)
+
+    raise ValueError(f"Unknown selector mode: {mode}")

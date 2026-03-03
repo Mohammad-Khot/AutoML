@@ -48,7 +48,7 @@ MODEL_REGISTRY = MappingProxyType({
     "classification": {
         "logistic": {
             **BASE_META,
-            "model": lambda: LogisticRegression(max_iter=1_000),
+            "model": lambda: LogisticRegression(max_iter=10_000),
             "needs_scaling": True,
             "interpretable": True,
             "compute_cost": COST_LOW

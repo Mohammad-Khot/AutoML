@@ -1,3 +1,5 @@
+# core/engine.py
+
 from pathlib import Path
 from typing import Optional, Dict, Any
 

@@ -2,7 +2,7 @@
 
 from typing import Final
 
-CONSOLE_WIDTH: Final[int] = 50
+CONSOLE_WIDTH: Final[int] = 75
 
 
 def print_section(title: str, *, timestamp: bool = False) -> None:

@@ -1,31 +1,54 @@
+# evaluation/evaluate_models.py
+
+from typing import Any, Dict
+import numpy as np
 from sklearn.model_selection import cross_val_score
 
 from automl_engine.reporting import log_model_score
-from automl_engine.core import AutoMLState
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.optimization.param_grid import get_param_grid
 from automl_engine.optimization.search_executor import run_grid_search
+from automl_engine.runtime.state import AutoMLState
 
 
-def evaluate_models(X, y, models, cv, config, resolved, stage):
+def evaluate_models(
+    X: Any,
+    y: Any,
+    models: Dict[str, Any],
+    cv: Any,
+    config: Any,
+    resolved: Any,
+    stage: str,
+) -> AutoMLState:
     """
-    Evaluate candidate models using CV.
+    Evaluate candidate models using cross-validation and optional hyperparameter search.
 
     Parameters
     ----------
-    X, y : dataset
-    models : model registry subset
-    cv : cross-validator
-    config : user runtime policy
-    resolved : resolved experiment truth
-    stage: stage of execution
-    """
+    X : Any
+        Feature matrix.
+    y : Any
+        Target vector.
+    models : Dict[str, Any]
+        Dictionary mapping model names to model metadata/definitions.
+    cv : Any
+        Cross-validation splitter instance.
+    config : Any
+        Runtime configuration object containing search strategy, logging, and parallelism settings.
+    resolved : Any
+        Resolved experiment configuration containing task type and evaluation metric.
+    stage : str
+        Current stage of execution for logging purposes.
 
-    state = AutoMLState()
+    Returns
+    -------
+    AutoMLState
+        Updated state object containing evaluated models, scores, pipelines, and parameters.
+    """
+    state: AutoMLState = AutoMLState()
 
     # ---------- CV sanity ----------
-
-    if hasattr(cv, "n_splits") and cv.n_splits < 2:
+    if hasattr(cv, "n_splits") and getattr(cv, "n_splits") < 2:
         log_model_score(
             "ALL",
             "SKIPPED: insufficient CV folds",
@@ -34,27 +57,24 @@ def evaluate_models(X, y, models, cv, config, resolved, stage):
         )
         return state
 
-    metric = resolved.metric
-    task = resolved.task
+    metric: str = resolved.metric
+    task: str = resolved.task
 
     # ---------- Model loop ----------
     for name, info in models.items():
-
         try:
-            # Build preprocessing + estimator
-            pipeline = build_pipeline(
+            pipeline: Any = build_pipeline(
                 info,
                 X,
                 config,
                 seed=config.seed,
             )
 
-            param_grids = get_param_grid(task)
-            param_grid = param_grids.get(name, {})
+            param_grids: Dict[str, Dict[str, Any]] = get_param_grid(task)
+            param_grid: Dict[str, Any] = param_grids.get(name, {})
 
             # ---------- Hyperparameter search ----------
             if config.search_type == "grid" and param_grid:
-
                 best_pipeline, mean_score, best_params = run_grid_search(
                     pipeline=pipeline,
                     param_grid=param_grid,
@@ -63,10 +83,9 @@ def evaluate_models(X, y, models, cv, config, resolved, stage):
                     y=y,
                     cv=cv,
                 )
-
             # ---------- Standard CV ----------
             else:
-                scores = cross_val_score(
+                scores: np.ndarray = cross_val_score(
                     pipeline,
                     X,
                     y,
@@ -75,9 +94,9 @@ def evaluate_models(X, y, models, cv, config, resolved, stage):
                     n_jobs=config.n_jobs,
                 )
 
-                mean_score = float(scores.mean())
+                mean_score: float = float(np.mean(scores))
                 best_pipeline = pipeline
-                best_params = None
+                best_params: Dict[str, Any] | None = None
 
         except Exception as e:
             log_model_score(

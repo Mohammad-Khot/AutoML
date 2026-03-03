@@ -14,19 +14,25 @@ TEMPORAL_KEYWORDS = [
 ]
 
 
-# -------------------------
-# ID Detection (X only)
-# -------------------------
-
 def detect_id_columns(X: pd.DataFrame, threshold: float = 0.95) -> List[Tuple[str, str]]:
-    suspects = []
-    df_size = max(1, len(X))
+    """
+    Identify columns that may act as identifiers based on high uniqueness ratio.
+
+    Args:
+        X: Feature DataFrame.
+        threshold: Proportion of unique values required to flag a column.
+
+    Returns:
+        A list of tuples containing column names and the reason for suspicion.
+    """
+    suspects: List[Tuple[str, str]] = []
+    df_size: int = max(1, len(X))
 
     for col in X.columns:
         if pd.api.types.is_float_dtype(X[col]):
             continue
 
-        unique_ratio = X[col].nunique(dropna=True) / df_size
+        unique_ratio: float = X[col].nunique(dropna=True) / df_size
 
         if unique_ratio > threshold:
             suspects.append((col, "possible_identifier"))
@@ -34,24 +40,29 @@ def detect_id_columns(X: pd.DataFrame, threshold: float = 0.95) -> List[Tuple[st
     return suspects
 
 
-# -------------------------
-# Target Leakage Detection
-# -------------------------
-
 def detect_target_leakage(X: pd.DataFrame, y: pd.Series) -> List[Tuple[str, str]]:
-    suspects = []
+    """
+    Detect potential target leakage by checking duplication or strong correlations
+    between features and the target variable.
+
+    Args:
+        X: Feature DataFrame.
+        y: Target Series.
+
+    Returns:
+        A list of tuples containing column names and the reason for suspicion.
+    """
+    suspects: List[Tuple[str, str]] = []
 
     for col in X.columns:
 
-        # Exact duplication
         if X[col].equals(y):
             suspects.append((col, "duplicate_of_target"))
             continue
 
-        # Numeric relationship checks
         if pd.api.types.is_numeric_dtype(X[col]) and pd.api.types.is_numeric_dtype(y):
 
-            valid = pd.concat([X[col], y], axis=1).dropna()
+            valid: pd.DataFrame = pd.concat([X[col], y], axis=1).dropna()
 
             if len(valid) < 2:
                 continue
@@ -63,7 +74,7 @@ def detect_target_leakage(X: pd.DataFrame, y: pd.Series) -> List[Tuple[str, str]
                 continue
 
             try:
-                corr = valid.iloc[:, 0].corr(valid.iloc[:, 1])
+                corr: float = valid.iloc[:, 0].corr(valid.iloc[:, 1])
                 rho, _ = spearmanr(valid.iloc[:, 0], valid.iloc[:, 1])
 
                 if np.isfinite(corr) and abs(corr) > 0.98:
@@ -78,12 +89,18 @@ def detect_target_leakage(X: pd.DataFrame, y: pd.Series) -> List[Tuple[str, str]
     return suspects
 
 
-# -------------------------
-# Temporal Leakage Detection
-# -------------------------
-
 def detect_temporal_columns(X: pd.DataFrame) -> List[Tuple[str, str]]:
-    suspects = []
+    """
+    Detect columns that may introduce temporal leakage based on datetime dtype
+    or temporal keywords in column names.
+
+    Args:
+        X: Feature DataFrame.
+
+    Returns:
+        A list of tuples containing column names and the reason for suspicion.
+    """
+    suspects: List[Tuple[str, str]] = []
 
     for col in X.columns:
 
@@ -96,13 +113,18 @@ def detect_temporal_columns(X: pd.DataFrame) -> List[Tuple[str, str]]:
     return suspects
 
 
-# -------------------------
-# Master Entry
-# -------------------------
-
 def run_leakage_checks(X: pd.DataFrame, y: pd.Series) -> List[Tuple[str, str]]:
+    """
+    Execute all leakage detection checks and issue a warning if any signals are found.
 
-    report = []
+    Args:
+        X: Feature DataFrame.
+        y: Target Series.
+
+    Returns:
+        A list of tuples containing column names and reasons for potential leakage.
+    """
+    report: List[Tuple[str, str]] = []
 
     report += detect_id_columns(X)
     report += detect_target_leakage(X, y)
@@ -111,7 +133,7 @@ def run_leakage_checks(X: pd.DataFrame, y: pd.Series) -> List[Tuple[str, str]]:
     if not report:
         return []
 
-    lines = ["Potential data leakage signals detected:"]
+    lines: List[str] = ["Potential data leakage signals detected:"]
     for col, reason in report:
         lines.append(f" • {col}: {reason}")
 

@@ -5,26 +5,47 @@ from automl_engine.planning.models import (
     MODEL_PRIORITY,
 )
 
-from automl_engine.evaluation import get_scorer_safe
-from automl_engine.evaluation.cv import get_cv_object
+from automl_engine.evaluation import get_scorer_safe, get_cv_object
 
 from automl_engine.reporting import (
     print_subsection,
     log_model_score,
 )
 
+from typing import Any, Dict, List
 
-def nested_cv(X, y, models, outer_cv, config, resolved):
+
+def run_nested_cv(
+    X: Any,
+    y: Any,
+    models: Dict[str, Dict[str, Any]],
+    outer_cv: Any,
+    config: Any,
+    resolved: Any,
+) -> List[float]:
     """
-    Perform nested cross-validation.
+    Perform nested cross-validation with inner model selection and outer
+    generalization evaluation.
 
     Parameters
     ----------
-    X, y : dataset
-    models : candidate models
-    outer_cv : outer CV splitter
-    resolved : resolved experiment configuration
-    config : runtime/search policy
+    X : Any
+        Feature dataset supporting iloc-based indexing.
+    y : Any
+        Target variable aligned with X.
+    models : Dict[str, Dict[str, Any]]
+        Dictionary of candidate model configurations.
+    outer_cv : Any
+        Outer cross-validation splitter object.
+    config : Any
+        Runtime/search configuration (must contain seed, cv_folds, log).
+    resolved : Any
+        Resolved experiment configuration (must contain metric, task).
+
+    Returns
+    -------
+    List[float]
+        List of outer fold evaluation scores.
     """
 
     if getattr(outer_cv, "n_splits", 0) < 2:
@@ -33,17 +54,14 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
             "Dataset too small for nested CV"
         )
 
-    outer_scores = []
-    selected_models = []
+    outer_scores: List[float] = []
+    selected_models: List[str] = []
 
     scorer = get_scorer_safe(resolved.metric)
     task = resolved.task
 
     from automl_engine.evaluation import evaluate_models
 
-    # ======================================================
-    # OUTER LOOP
-    # ======================================================
     for i, (outer_train_idx, outer_test_idx) in enumerate(
         outer_cv.split(X, y), 1
     ):
@@ -55,9 +73,6 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
         y_train = y.iloc[outer_train_idx]
         y_test = y.iloc[outer_test_idx]
 
-        # --------------------------------------------------
-        # Degenerate classification fold safeguard
-        # --------------------------------------------------
         if task == "classification" and y_train.value_counts().min() < 2:
             print("[WARN] Fold has classes with <2 samples. Using dummy model.")
 
@@ -75,16 +90,12 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
             )
 
             pipeline.fit(X_train, y_train)
-
             score = scorer(pipeline, X_test, y_test)
 
             outer_scores.append(score)
             selected_models.append(best_name)
             continue
 
-        # --------------------------------------------------
-        # INNER CV
-        # --------------------------------------------------
         safe_inner_cv = get_cv_object(
             task,
             y_train,
@@ -99,7 +110,7 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
             safe_inner_cv,
             config,
             resolved,
-            f"INNER-{i}"
+            f"INNER-{i}",
         )
 
         if not state.scores:
@@ -107,9 +118,6 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
                 "All models failed during inner CV evaluation."
             )
 
-        # --------------------------------------------------
-        # Select best inner model
-        # --------------------------------------------------
         best_name = select_best_model(
             state.scores,
             MODEL_PRIORITY,
@@ -118,9 +126,6 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
         selected_models.append(best_name)
         best_info = models[best_name]
 
-        # --------------------------------------------------
-        # Refit on full outer train
-        # --------------------------------------------------
         pipeline = build_pipeline(
             best_info,
             X_train,
@@ -131,12 +136,14 @@ def nested_cv(X, y, models, outer_cv, config, resolved):
         pipeline.fit(X_train, y_train)
 
         score = scorer(pipeline, X_test, y_test)
+
         log_model_score(
             best_name,
             score,
             stage=f"OUTER-{i}",
-            log=config.log
+            log=config.log,
         )
+
         outer_scores.append(score)
 
     return outer_scores

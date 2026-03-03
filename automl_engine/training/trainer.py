@@ -1,20 +1,9 @@
-# automl_engine/training/trainer.py
-
-from automl_engine.planning.models import (
-    MODEL_PRIORITY,
-    select_best_model,
-)
-
-from automl_engine.preprocessing import build_pipeline
-
-from automl_engine.evaluation import (
-    evaluate_models,
-    scout_models,
-)
-
-from automl_engine.orchestration.nested import nested_cv
-
+from automl_engine.evaluation import scout_models
 from automl_engine.reporting import print_section
+
+from .workflow import execute_training_workflow
+from .selection import resolve_best_model
+from .finalizer import finalize_model
 
 
 class ModelTrainer:
@@ -28,38 +17,36 @@ class ModelTrainer:
         # ---------- Scout ----------
         if self.config.log:
             print_section("Global Pre-Screen")
-        models, _ = scout_models(X, y, models, outer_cv, self.config)
+
+        models, _ = scout_models(
+            X, y,
+            models,
+            outer_cv,
+            self.config,
+        )
 
         # ---------- Evaluation ----------
-        if not self.config.nested_cv:
-            if self.config.log:
-                print_section("Standard Cross Validation")
-            state = evaluate_models(X, y, models, outer_cv, self.config, resolved, "OUTER_CV")
-            outer_scores = state.scores
-        else:
-            if self.config.log:
-                print_section("Nested Evaluation")
-            outer_result = nested_cv(X, y, models, outer_cv, self.config, resolved)
-            outer_scores = getattr(outer_result, "scores", outer_result)
+        state, outer_scores = execute_training_workflow(
+            X,
+            y,
+            models,
+            outer_cv,
+            self.config,
+            resolved,
+        )
 
-            if self.config.log:
-                print_section("Final Model Fit")
-            state = evaluate_models(X, y, models, outer_cv, self.config, resolved, "FINAL_FIT")
+        # ---------- Selection ----------
+        best_model_name = resolve_best_model(state)
 
-        if not state.scores:
-            raise RuntimeError("No models successfully evaluated.")
+        # ---------- Final Fit ----------
+        pipeline = finalize_model(
+            best_model_name,
+            state,
+            models,
+            X,
+            y,
+            self.config,
+            self.seed,
+        )
 
-        # ---------- Final Selection ----------
-        best_model_name = select_best_model(state.scores, MODEL_PRIORITY)
-        best_info = models[best_model_name]
-
-        best_pipeline = state.get_pipeline(best_model_name)
-
-        if best_pipeline is None:
-            best_pipeline = build_pipeline(
-                best_info, X, self.config, seed=self.seed
-            )
-
-        best_pipeline.fit(X, y)
-
-        return best_pipeline, state, outer_scores, best_model_name
+        return pipeline, state, outer_scores, best_model_name

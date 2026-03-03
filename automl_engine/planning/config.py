@@ -173,7 +173,7 @@ class AutoMLConfig:
         if not (0 < self.scout_fraction <= 1):
             raise ValueError("scout_fraction must be in (0, 1]")
 
-        if self.task and self.metric:
+        if self.task is not None and self.metric is not None:
             expected = METRIC_TASK_MAP[self.metric]
             if expected != self.task:
                 raise ValueError(

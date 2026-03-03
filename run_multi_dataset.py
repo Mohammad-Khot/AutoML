@@ -109,7 +109,7 @@ def main():
 
     config = AutoMLConfig(
         seed=42,
-        nested_cv=True
+        nested_cv=True,
     )
 
     paths = build_datasets()

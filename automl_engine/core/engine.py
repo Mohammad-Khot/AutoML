@@ -55,23 +55,11 @@ class AutoMLEngine:
     # ==========================================================
 
     def fit(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series,
-        save_dir: Optional[str] = None,
+            self,
+            X: pd.DataFrame,
+            y: pd.Series,
+            save_dir: Optional[str] = None,
     ) -> None:
-        """
-        Fit the AutoML engine on feature matrix X and target y.
-
-        Parameters
-        ----------
-        X : pd.DataFrame
-            Feature matrix.
-        y : pd.Series
-            Target vector.
-        save_dir : Optional[str], default=None
-            Directory to persist session and config artifacts.
-        """
         import time
 
         start_time = time.perf_counter()
@@ -102,17 +90,22 @@ class AutoMLEngine:
 
         trainer = ModelTrainer(self.config, self.seed)
 
-        best_pipeline, state, outer_scores, best_model_name = trainer.train(
-            X, y, models, outer_cv, resolved
-        )
+        (
+            final_pipeline,
+            state,
+            outer_scores,
+            best_model_name,
+            optuna_plots,
+        ) = trainer.train(X, y, models, outer_cv, resolved)
 
         self.session = TrainingSession(
             resolved=resolved,
-            pipeline=best_pipeline,
+            pipeline=final_pipeline,
             search_state=state,
             outer_scores=outer_scores,
             best_model_name=best_model_name,
             feature_names=feature_names,
+            optuna_plots=optuna_plots,
         )
 
         self._runtime = time.perf_counter() - start_time
@@ -154,7 +147,7 @@ class AutoMLEngine:
 
     def fit_from_path(
         self,
-        path: str,
+        path: str | Path,
         save_dir: Optional[str] = None,
     ) -> None:
         """
@@ -272,14 +265,25 @@ class AutoMLEngine:
 
         outer = self.outer_summary()
 
-        if outer and self.config.log:
-            print_result_block(
-                model=self.session_.best_model_name,
-                metric=self.resolved.metric,
-                mean=outer["mean"],
-                std=outer["std"],
-                runtime=getattr(self, "_runtime", 0.0),
-            )
+        state_scores = self.session_.search_state.scores
+        best = self.session_.best_model_name
+        mean_score = state_scores[best]
+
+        print_result_block(
+            model=best,
+            metric=self.resolved.metric,
+            mean=mean_score,
+            std=0.0,  # or compute CV std if you store it later
+            runtime=getattr(self, "_runtime", 0.0),
+        )
+
+        # ---- Optuna Plots ----
+        if getattr(self.config, "show_optuna_plots", False):
+            plots = self.session_.optuna_plots
+            if plots:
+                for name, fig in plots.items():
+                    print_section(f"Optuna Plot: {name}")
+                    fig.show()
 
     # ==========================================================
     # Persistence

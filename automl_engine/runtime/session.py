@@ -30,3 +30,4 @@ class TrainingSession:
     outer_scores: Sequence[float]
     best_model_name: str
     feature_names: list[str]
+    optuna_plots: Any

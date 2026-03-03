@@ -14,7 +14,7 @@ from sklearn.model_selection import (
 
 
 def get_cv_object(
-    task: Literal["classification", "regression"],
+    task: str,
     y: pd.Series,
     folds: int,
     seed: int,

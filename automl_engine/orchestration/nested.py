@@ -22,7 +22,7 @@ def run_nested_cv(
     outer_cv: Any,
     config: Any,
     resolved: Any,
-) -> List[float]:
+) -> dict[str, list[str] | list[float]]:
     """
     Perform nested cross-validation with inner model selection and outer
     generalization evaluation.
@@ -146,4 +146,8 @@ def run_nested_cv(
 
         outer_scores.append(score)
 
-    return outer_scores
+    return {
+        "outer_scores": outer_scores,
+        "selected_models": selected_models
+    }
+

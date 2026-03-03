@@ -1,6 +1,6 @@
 # planning/config.py
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Literal, get_args, Any, Type, Self
 
 
@@ -34,6 +34,22 @@ ImputeStrategy = Literal["auto", "simple", "knn", "iterative", "none"]
 SearchStrategy = Literal[
     "grid", "random", "half_grid", "half_randomized", "bayesian"
 ]
+
+
+class OptunaConfig:
+    def __init__(
+        self,
+        enabled: bool = True,
+        n_trials: int = 50,
+        direction: str = "maximize",
+        n_jobs: int = 1,
+        seed: int | None = None,
+    ):
+        self.enabled = enabled
+        self.n_trials = n_trials
+        self.direction = direction
+        self.n_jobs = n_jobs
+        self.seed = seed
 
 
 @dataclass
@@ -87,6 +103,11 @@ class AutoMLConfig:
     scout_fraction: float = 0.2
     scout_folds: int = 3
     search_type: Optional[SearchStrategy] = None
+
+    # ─────────────── Optimization ───────────────
+    optuna: OptunaConfig = field(default_factory=OptunaConfig)
+    return_optuna_plots: bool = True
+    show_optuna_plots: bool = True
 
     # ─────────────── Misc ───────────────
     log: bool = True
@@ -198,3 +219,5 @@ class AutoMLConfig:
             f"metric={self.metric}, "
             f"cv={self.cv_folds})"
         )
+
+

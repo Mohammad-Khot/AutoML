@@ -29,25 +29,16 @@ from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from xgboost import XGBRegressor, XGBClassifier
 
+from automl_engine.planning.models.spec import ModelSpec
+
 COST_LOW = "low"
 COST_MEDIUM = "medium"
 COST_HIGH = "high"
 
-BASE_META = {
-    "needs_scaling": False,
-    "size_sensitive": False,
-    "handles_high_dim": False,
-    "native_categorical": False,
-    "interpretable": False,
-    "compute_cost": COST_MEDIUM
-}
-
 
 # ---------------------------
-# SEARCH SPACE DEFINITIONS
+# SEARCH SPACES
 # ---------------------------
-
-# ===== CLASSIFICATION =====
 
 def logistic_space(trial):
     return {
@@ -181,8 +172,6 @@ def xgboost_space(trial):
     }
 
 
-# ===== REGRESSION =====
-
 def ridge_space(trial):
     return {
         "model__alpha": trial.suggest_float("model__alpha", 1e-4, 100, log=True),
@@ -216,81 +205,272 @@ def sgd_space(trial):
 
 
 # ---------------------------
-# REGISTRY
+# MODEL REGISTRY
 # ---------------------------
 
 MODEL_REGISTRY = MappingProxyType({
+
     "classification": {
-        "logistic": {**BASE_META, "model": lambda: LogisticRegression(max_iter=10_000), "needs_scaling": True,
-                     "search_space": logistic_space},
-        "ridge": {**BASE_META, "model": lambda: RidgeClassifier(), "needs_scaling": True,
-                  "search_space": ridge_classifier_space},
-        "svm": {**BASE_META, "model": lambda: SVC(), "needs_scaling": True, "search_space": svm_space},
-        "knn": {**BASE_META, "model": lambda: KNeighborsClassifier(), "needs_scaling": True, "search_space": knn_space},
-        "naive_bayes": {**BASE_META, "model": lambda: GaussianNB()},
-        "decision_tree": {**BASE_META, "model": lambda: DecisionTreeClassifier(), "search_space": decision_tree_space},
-        "rf": {**BASE_META, "model": lambda: RandomForestClassifier(), "search_space": rf_space},
-        "extra_trees": {**BASE_META, "model": lambda: ExtraTreesClassifier(), "search_space": extra_trees_space},
-        "gb": {**BASE_META, "model": lambda: GradientBoostingClassifier(), "search_space": gb_space},
-        "hist_gb": {**BASE_META, "model": lambda: HistGradientBoostingClassifier(), "search_space": hist_gb_space},
-        "xgboost": {**BASE_META, "model": lambda: XGBClassifier(), "search_space": xgboost_space},
-        "dummy": {**BASE_META, "model": lambda: DummyClassifier(strategy="prior")},
+
+        "logistic": ModelSpec(
+            name="logistic",
+            factory=lambda: LogisticRegression(max_iter=10000),
+            needs_scaling=True,
+            supports_sparse=True,
+            interpretable=True,
+            recommended_for_small_data=True,
+            search_space=logistic_space,
+            priority=1
+        ),
+
+        "ridge": ModelSpec(
+            name="ridge",
+            factory=lambda: RidgeClassifier(),
+            needs_scaling=True,
+            supports_sparse=True,
+            interpretable=True,
+            recommended_for_small_data=True,
+            search_space=ridge_classifier_space,
+            priority=1
+        ),
+
+        "svm": ModelSpec(
+            name="svm",
+            factory=lambda: SVC(),
+            needs_scaling=True,
+            supports_sparse=True,
+            size_sensitive=True,
+            search_space=svm_space,
+            priority=2
+        ),
+
+        "knn": ModelSpec(
+            name="knn",
+            factory=lambda: KNeighborsClassifier(),
+            needs_scaling=True,
+            size_sensitive=True,
+            recommended_for_small_data=True,
+            search_space=knn_space,
+            priority=2
+        ),
+
+        "naive_bayes": ModelSpec(
+            name="naive_bayes",
+            factory=lambda: GaussianNB(),
+            recommended_for_small_data=True,
+            priority=2
+        ),
+
+        "decision_tree": ModelSpec(
+            name="decision_tree",
+            factory=lambda: DecisionTreeClassifier(),
+            supports_sparse=True,
+            interpretable=True,
+            recommended_for_small_data=True,
+            search_space=decision_tree_space,
+            priority=2
+        ),
+
+        "rf": ModelSpec(
+            name="rf",
+            factory=lambda: RandomForestClassifier(),
+            supports_sparse=True,
+            handles_large_datasets=True,
+            search_space=rf_space,
+            priority=3
+        ),
+
+        "extra_trees": ModelSpec(
+            name="extra_trees",
+            factory=lambda: ExtraTreesClassifier(),
+            supports_sparse=True,
+            handles_large_datasets=True,
+            search_space=extra_trees_space,
+            priority=3
+        ),
+
+        "gb": ModelSpec(
+            name="gb",
+            factory=lambda: GradientBoostingClassifier(),
+            search_space=gb_space,
+            priority=3
+        ),
+
+        "hist_gb": ModelSpec(
+            name="hist_gb",
+            factory=lambda: HistGradientBoostingClassifier(),
+            supports_missing=True,
+            handles_large_datasets=True,
+            search_space=hist_gb_space,
+            priority=3
+        ),
+
+        "xgboost": ModelSpec(
+            name="xgboost",
+            factory=lambda: XGBClassifier(),
+            supports_missing=True,
+            supports_sparse=True,
+            supports_gpu=True,
+            handles_large_datasets=True,
+            search_space=xgboost_space,
+            priority=3
+        ),
+
+        "dummy": ModelSpec(
+            name="dummy",
+            factory=lambda: DummyClassifier(strategy="prior"),
+            priority=0
+        ),
     },
+
+
     "regression": {
-        "linear": {**BASE_META, "model": lambda: LinearRegression()},
-        "ridge": {**BASE_META, "model": lambda: Ridge(), "search_space": ridge_space},
-        "lasso": {**BASE_META, "model": lambda: Lasso(), "search_space": lasso_space},
-        "elastic": {**BASE_META, "model": lambda: ElasticNet(), "search_space": elastic_space},
-        "sgd": {**BASE_META, "model": lambda: SGDRegressor(), "search_space": sgd_space},
-        "svm": {**BASE_META, "model": lambda: SVR(), "search_space": svm_space},
-        "knn": {**BASE_META, "model": lambda: KNeighborsRegressor(), "search_space": knn_space},
-        "decision_tree": {**BASE_META, "model": lambda: DecisionTreeRegressor(), "search_space": decision_tree_space},
-        "rf": {**BASE_META, "model": lambda: RandomForestRegressor(), "search_space": rf_space},
-        "extra_trees": {**BASE_META, "model": lambda: ExtraTreesRegressor(), "search_space": extra_trees_space},
-        "gb": {**BASE_META, "model": lambda: GradientBoostingRegressor(), "search_space": gb_space},
-        "hist_gb": {**BASE_META, "model": lambda: HistGradientBoostingRegressor(), "search_space": hist_gb_space},
-        "xgboost": {**BASE_META, "model": lambda: XGBRegressor(), "search_space": xgboost_space},
-        "dummy": {**BASE_META, "model": lambda: DummyRegressor(strategy="mean")},
-    },
+
+        "linear": ModelSpec(
+            name="linear",
+            factory=lambda: LinearRegression(),
+            supports_sparse=True,
+            interpretable=True,
+            recommended_for_small_data=True,
+            priority=1
+        ),
+
+        "ridge": ModelSpec(
+            name="ridge",
+            factory=lambda: Ridge(),
+            supports_sparse=True,
+            interpretable=True,
+            recommended_for_small_data=True,
+            search_space=ridge_space,
+            priority=1
+        ),
+
+        "lasso": ModelSpec(
+            name="lasso",
+            factory=lambda: Lasso(),
+            interpretable=True,
+            recommended_for_small_data=True,
+            search_space=lasso_space,
+            priority=1
+        ),
+
+        "elastic": ModelSpec(
+            name="elastic",
+            factory=lambda: ElasticNet(),
+            interpretable=True,
+            recommended_for_small_data=True,
+            search_space=elastic_space,
+            priority=1
+        ),
+
+        "sgd": ModelSpec(
+            name="sgd",
+            factory=lambda: SGDRegressor(),
+            supports_sparse=True,
+            handles_large_datasets=True,
+            search_space=sgd_space,
+            priority=2
+        ),
+
+        "svm": ModelSpec(
+            name="svm",
+            factory=lambda: SVR(),
+            supports_sparse=True,
+            size_sensitive=True,
+            search_space=svm_space,
+            priority=2
+        ),
+
+        "knn": ModelSpec(
+            name="knn",
+            factory=lambda: KNeighborsRegressor(),
+            size_sensitive=True,
+            search_space=knn_space,
+            priority=2
+        ),
+
+        "decision_tree": ModelSpec(
+            name="decision_tree",
+            factory=lambda: DecisionTreeRegressor(),
+            supports_sparse=True,
+            interpretable=True,
+            recommended_for_small_data=True,
+            search_space=decision_tree_space,
+            priority=2
+        ),
+
+        "rf": ModelSpec(
+            name="rf",
+            factory=lambda: RandomForestRegressor(),
+            supports_sparse=True,
+            handles_large_datasets=True,
+            search_space=rf_space,
+            priority=3
+        ),
+
+        "extra_trees": ModelSpec(
+            name="extra_trees",
+            factory=lambda: ExtraTreesRegressor(),
+            supports_sparse=True,
+            handles_large_datasets=True,
+            search_space=extra_trees_space,
+            priority=3
+        ),
+
+        "gb": ModelSpec(
+            name="gb",
+            factory=lambda: GradientBoostingRegressor(),
+            search_space=gb_space,
+            priority=3
+        ),
+
+        "hist_gb": ModelSpec(
+            name="hist_gb",
+            factory=lambda: HistGradientBoostingRegressor(),
+            supports_missing=True,
+            handles_large_datasets=True,
+            search_space=hist_gb_space,
+            priority=3
+        ),
+
+        "xgboost": ModelSpec(
+            name="xgboost",
+            factory=lambda: XGBRegressor(),
+            supports_missing=True,
+            supports_sparse=True,
+            supports_gpu=True,
+            handles_large_datasets=True,
+            search_space=xgboost_space,
+            priority=3
+        ),
+
+        "dummy": ModelSpec(
+            name="dummy",
+            factory=lambda: DummyRegressor(strategy="mean"),
+            priority=0
+        ),
+    }
+
 })
-
-MODEL_PRIORITY = {
-
-    # ----------Classifiers----------
-    "logistic": 1,
-
-    "naive_bayes": 2,
-
-    # ----------Regressors----------
-    "linear": 1,
-    "lasso": 1,
-    "elastic": 1,
-
-    "sgd": 2,
-
-    # ----------Classifiers & Regressors----------
-    "dummy": 0,
-
-    "ridge": 1,
-
-    "knn": 2,
-    "decision_tree": 2,
-    "svm": 2,
-
-    "rf": 3,
-    "extra_trees": 3,
-    "gb": 3,
-    "hist_gb": 3,
-    "xgboost": 3,
-    # "catboost": 3,
-    # "lightgbm": 3,
-}
 
 
 def get_model(task: str, name: str) -> BaseEstimator:
+    """
+    Retrieve and instantiate a model from the MODEL_REGISTRY.
+
+    Args:
+        task (str): The task type ("classification" or "regression").
+        name (str): The model name registered under the given task.
+
+    Returns:
+        BaseEstimator: A new instance of the requested sklearn-compatible estimator.
+
+    Raises:
+        ValueError: If the task or model name is not found in the registry.
+    """
     try:
-        model_factory = MODEL_REGISTRY[task][name]["model"]
+        spec: ModelSpec = MODEL_REGISTRY[task][name]
     except KeyError as exc:
         raise ValueError(f"Unknown model '{name}' for task '{task}'.") from exc
 
-    return model_factory()
+    return spec.factory()

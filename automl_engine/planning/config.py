@@ -25,7 +25,7 @@ ScalingMode = Literal["auto", "force", "none"]
 ScalerType = Literal["standard", "minmax", "robust", "maxabs"]
 EncodingMode = Literal["auto", "onehot", "ordinal", "none"]
 TaskType = Literal["classification", "regression"]
-FeatureSelection = Literal["auto", "none", "kbest", "variance"]
+FeatureSelection = Literal["auto", "none", "variance", "l1", "tree"]
 MetricType = Literal["accuracy", "f1", "roc_auc", "rmse", "mae", "r2"]
 MaxCompute = Literal["low", "medium", "high"]
 LeakPolicy = Literal["error", "warn", "drop"]
@@ -219,5 +219,3 @@ class AutoMLConfig:
             f"metric={self.metric}, "
             f"cv={self.cv_folds})"
         )
-
-

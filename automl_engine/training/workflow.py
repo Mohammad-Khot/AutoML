@@ -1,5 +1,6 @@
 # training/workflow.py
-from typing import Any, Dict, Tuple, List
+
+from typing import Any, Dict
 
 import pandas as pd
 from plotly.graph_objs import Figure
@@ -15,24 +16,58 @@ from automl_engine.runtime.state import AutoMLState
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.optimization.optimizer import optimize_model
 from automl_engine.evaluation import get_cv_object
+from automl_engine.planning.models.spec import ModelSpec
 
 
 def execute_training_workflow(
-        X: pd.DataFrame,
-        y: pd.Series,
-        models: Dict[str, Dict[str, Any]],
-        outer_cv: Any,
-        config: AutoMLConfig,
-        resolved: ResolvedConfig,
-) -> tuple[Any, AutoMLState, list[float], str] | tuple[
-    object | Any, AutoMLState, list[str] | list[float], str, dict[str, Figure] | None]:
+    X: pd.DataFrame,
+    y: pd.Series,
+    models: Dict[str, ModelSpec],
+    outer_cv: Any,
+    config: AutoMLConfig,
+    resolved: ResolvedConfig,
+) -> tuple[Any, AutoMLState, list[float], str] | tuple[Any, AutoMLState, list[float], str, dict[str, Figure] | None]:
+    """
+    Execute the full training workflow including model evaluation, optional nested
+    cross-validation, final model fitting, and optional hyperparameter optimization.
+
+    The workflow performs:
+    1. Standard cross-validation if nested CV is disabled.
+    2. Nested cross-validation for model selection if enabled.
+    3. Final evaluation of all models on the full dataset.
+    4. Hyperparameter optimization using Optuna for the selected best model.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix.
+    y : pd.Series
+        Target vector.
+    models : Dict[str, ModelSpec]
+        Dictionary mapping model names to their specifications.
+    outer_cv : Any
+        Cross-validation strategy used for outer evaluation.
+    config : AutoMLConfig
+        User configuration for the AutoML workflow.
+    resolved : ResolvedConfig
+        Resolved experiment configuration including task and metric.
+
+    Returns
+    -------
+    tuple
+        If nested CV is disabled:
+            (best_pipeline, state, scores, best_model_name)
+
+        If nested CV is enabled:
+            (tuned_pipeline, state, outer_scores, best_model_name, optuna_plots)
+    """
+
     # ---------- Standard CV ----------
     if not config.nested_cv:
-
         if config.log:
             print_section("Standard Cross Validation")
 
-        state = evaluate_models(
+        state: AutoMLState = evaluate_models(
             X,
             y,
             models,
@@ -42,8 +77,8 @@ def execute_training_workflow(
             "OUTER_CV",
         )
 
-        best_model_name = max(state.scores, key=state.scores.get)
-        best_pipeline = state.get_pipeline(best_model_name)
+        best_model_name: str = max(state.scores, key=state.scores.get)
+        best_pipeline: Any = state.get_pipeline(best_model_name)
 
         return best_pipeline, state, list(state.scores.values()), best_model_name
 
@@ -51,7 +86,7 @@ def execute_training_workflow(
     if config.log:
         print_section("Nested Evaluation")
 
-    outer_result = run_nested_cv(
+    outer_result: Dict[str, Any] = run_nested_cv(
         X,
         y,
         models,
@@ -60,16 +95,19 @@ def execute_training_workflow(
         resolved,
     )
 
-    outer_scores = outer_result["outer_scores"]
-    selected_models = outer_result["selected_models"]
+    outer_scores: list[float] = outer_result["outer_scores"]
+    selected_models: list[str] = outer_result["selected_models"]
 
-    best_model_name = Counter(selected_models).most_common(1)[0][0]
+    best_model_name: str = Counter(selected_models).most_common(1)[0][0]
 
     if config.log:
         print(f"Selected Model (by frequency): {best_model_name}")
 
-    # ---------- Evaluate All Models on Full Data (Leaderboard State) ----------
-    state = evaluate_models(
+    # ---------- Evaluate All Models on Full Data ----------
+    if config.log:
+        print_section("Final Fit")
+
+    state: AutoMLState = evaluate_models(
         X,
         y,
         models,
@@ -83,26 +121,29 @@ def execute_training_workflow(
     if config.log:
         print_section("Hyperparameter Optimization")
 
-    best_info = models[best_model_name]
+    best_info: ModelSpec = models[best_model_name]
 
-    tuning_cv = get_cv_object(
+    tuning_cv: Any = get_cv_object(
         resolved.task,
         y,
         config.cv_folds,
         config.seed,
     )
 
-    pipeline = build_pipeline(
+    pipeline: Any = build_pipeline(
         best_info,
         X,
         config,
         seed=config.seed,
     )
 
-    search_space = best_info.get("search_space")
-    optuna_plots = None
+    search_space: Any = best_info.search_space
+    optuna_plots: dict[str, Figure] | None = None
 
     if config.optuna.enabled and search_space is not None:
+        tuned_pipeline: Any
+        study: Any
+
         tuned_pipeline, study = optimize_model(
             pipeline=pipeline,
             X=X,
@@ -113,6 +154,7 @@ def execute_training_workflow(
             scoring=resolved.metric,
             config=config,
         )
+
         if config.return_optuna_plots and study is not None:
             import optuna.visualization as vis
 
@@ -121,9 +163,11 @@ def execute_training_workflow(
                 "importance": vis.plot_param_importances(study),
                 "parallel": vis.plot_parallel_coordinate(study),
             }
+
     else:
         if config.log and config.optuna.enabled:
             print(f"No hyperparameters to tune for '{best_model_name}'. Skipping optimization.")
+
         tuned_pipeline = pipeline.fit(X, y)
 
     return tuned_pipeline, state, outer_scores, best_model_name, optuna_plots

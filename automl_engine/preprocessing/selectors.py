@@ -1,5 +1,5 @@
 # preprocessing/selectors.py
-from typing import Literal, Optional, Union
+from typing import Optional, Union
 
 from sklearn.base import BaseEstimator
 from sklearn.feature_selection import (
@@ -11,6 +11,8 @@ from sklearn.feature_selection import (
 )
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import Lasso, LogisticRegression
+
+from automl_engine.planning.config import FeatureSelection, TaskType
 
 
 def safe_k(total_features: int, k: int) -> int:
@@ -36,8 +38,8 @@ def safe_k(total_features: int, k: int) -> int:
 
 
 def get_selector(
-    task: Literal["classification", "regression"],
-    mode: Literal["auto", "none", "variance", "l1", "tree"] = "auto",
+    task: TaskType,
+    mode: FeatureSelection = "auto",
     n_features: Optional[int] = None,
 ) -> Union[str, BaseEstimator]:
     """

@@ -16,6 +16,7 @@ from automl_engine.reporting import (
     print_result_block,
     print_run_header,
     print_row,
+    print_subsection
 )
 
 
@@ -282,7 +283,7 @@ class AutoMLEngine:
             plots = self.session_.optuna_plots
             if plots:
                 for name, fig in plots.items():
-                    print_section(f"Optuna Plot: {name}")
+                    print_subsection(f"Optuna Plot: {name}")
                     fig.show()
 
     # ==========================================================

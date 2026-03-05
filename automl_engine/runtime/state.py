@@ -16,6 +16,9 @@ class AutoMLState:
     def __init__(self) -> None:
         """
         Initialize an empty AutoML state container.
+
+        Returns:
+            None
         """
         self.models: Dict[str, Dict[str, Any]] = {}
 
@@ -23,7 +26,7 @@ class AutoMLState:
         self,
         model_name: str,
         score: float,
-        pipeline: Any = None,
+        pipeline: Optional[Any] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -34,6 +37,9 @@ class AutoMLState:
             score: Evaluation score for the model.
             pipeline: Trained pipeline object (optional).
             params: Hyperparameters used for the model (optional).
+
+        Returns:
+            None
 
         Raises:
             TypeError: If score is not numeric.
@@ -64,7 +70,7 @@ class AutoMLState:
             for name, info in self.models.items()
         }
 
-    def get_pipeline(self, model_name: str) -> Any:
+    def get_pipeline(self, model_name: str) -> Optional[Any]:
         """
         Retrieve the stored pipeline for a given model.
 

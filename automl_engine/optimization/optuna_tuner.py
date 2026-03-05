@@ -1,30 +1,38 @@
 # optimization/optuna_tuner.py
-
 import optuna
-from sklearn.base import clone
+from typing import Any, Callable, cast
+from optuna.trial import Trial
+from optuna.study import Study
+
+from sklearn.base import clone, BaseEstimator
 from sklearn.model_selection import cross_val_score
 
 from automl_engine.planning.models.registry import MODEL_REGISTRY
 
 
 def objective(
-    trial,
-    pipeline,
-    X,
-    y,
-    task,
-    model_name,
-    cv,
-    scoring,
-):
+    trial: Trial,
+    pipeline: BaseEstimator,
+    X: Any,
+    y: Any,
+    task: str,
+    model_name: str,
+    cv: Any,
+    scoring: str | Callable,
+) -> float:
     """
-    Generic Optuna objective.
-    Delegates search space definition to MODEL_REGISTRY.
+    Optuna objective function used for hyperparameter optimization.
+
+    This function retrieves the model search space from MODEL_REGISTRY,
+    samples hyperparameters using the provided Optuna trial, applies them
+    to a cloned pipeline, and evaluates the model using cross-validation.
+
+    Returns the mean cross-validation score.
     """
 
-    model_meta = MODEL_REGISTRY[task][model_name]
+    spec = MODEL_REGISTRY[task][model_name]
 
-    search_space = model_meta.get("search_space")
+    search_space = spec.search_space
 
     if search_space is None:
         raise ValueError(
@@ -33,7 +41,7 @@ def objective(
 
     params = search_space(trial)
 
-    model = clone(pipeline)
+    model: BaseEstimator = cast(BaseEstimator, clone(pipeline))
     model.set_params(**params)
 
     scores = cross_val_score(
@@ -45,29 +53,34 @@ def objective(
         n_jobs=1,
     )
 
-    return scores.mean()
+    return float(scores.mean())
 
 
 def run_optuna(
-    pipeline,
-    X,
-    y,
-    task,
-    model_name,
-    cv,
-    scoring,
-    direction,
-    config,
-    n_trials=100,
-    n_jobs=1,
-    seed=42,
-):
+    pipeline: BaseEstimator,
+    X: Any,
+    y: Any,
+    task: str,
+    model_name: str,
+    cv: Any,
+    scoring: str | Callable,
+    direction: str,
+    config: Any,
+    n_trials: int = 100,
+    n_jobs: int = 1,
+    seed: int = 42,
+) -> Study:
     """
-    Run Optuna hyperparameter optimization.
+    Execute Optuna hyperparameter optimization for a given pipeline.
+
+    Creates an Optuna study with a TPE sampler and Median pruner,
+    runs optimization using the defined objective function, and
+    returns the completed study object.
     """
 
     sampler = optuna.samplers.TPESampler(seed=seed)
     pruner = optuna.pruners.MedianPruner()
+
     study_name = f"{task}_{model_name}_{scoring}_seed{config.seed}"
 
     study = optuna.create_study(

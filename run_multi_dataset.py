@@ -12,7 +12,7 @@ from sklearn.datasets import (
 )
 
 from automl_engine import AutoMLEngine, AutoMLConfig
-
+from automl_engine.reporting.console import CONSOLE_WIDTH
 
 DATA_DIR = Path("temp_datasets")
 DATA_DIR.mkdir(exist_ok=True)
@@ -110,14 +110,15 @@ def main():
     config = AutoMLConfig(
         seed=42,
         nested_cv=True,
+        show_optuna_plots=False
     )
 
     paths = build_datasets()
 
     for path in paths:
-        print("\n" + "=" * 60)
-        print(f"Running AutoML on: {path.name}")
-        print("\n\n\n\n" + "=" * 60)
+        print("\n\n" + "=" * CONSOLE_WIDTH + "\n\n")
+        print(f"RUNNING AUTO ML ON: {path.name}")
+        print("\n\n" + "=" * CONSOLE_WIDTH)
 
         engine = AutoMLEngine(config)
 

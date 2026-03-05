@@ -1,8 +1,8 @@
 # evaluation/evaluate_models.py
-
 from typing import Any, Dict
 import numpy as np
 from sklearn.model_selection import cross_val_score
+from sklearn.base import BaseEstimator
 
 from automl_engine.reporting import log_model_score
 from automl_engine.preprocessing import build_pipeline
@@ -20,12 +20,40 @@ def evaluate_models(
 ) -> AutoMLState:
     """
     Evaluate candidate models using cross-validation.
-    Pure evaluation only — no hyperparameter search.
+
+    This function builds a preprocessing + model pipeline for each candidate
+    model and evaluates it using sklearn's cross_val_score. It records the
+    mean CV score in the AutoMLState object and logs results through the
+    reporting system.
+
+    No hyperparameter search is performed here — only evaluation of the
+    provided model configurations.
+
+    Parameters
+    ----------
+    X : Any
+        Feature matrix.
+    y : Any
+        Target vector.
+    models : Dict[str, Any]
+        Mapping of model names to model specifications/configurations.
+    cv : Any
+        Cross-validation splitter object.
+    config : Any
+        Global AutoML configuration object.
+    resolved : Any
+        Resolved experiment configuration containing the metric.
+    stage : str
+        Stage label used for logging (e.g., "baseline", "selection").
+
+    Returns
+    -------
+    AutoMLState
+        Updated state object containing model scores and associated pipelines.
     """
 
     state: AutoMLState = AutoMLState()
 
-    # ---------- CV sanity ----------
     if hasattr(cv, "n_splits") and getattr(cv, "n_splits") < 2:
         log_model_score(
             "ALL",
@@ -37,10 +65,9 @@ def evaluate_models(
 
     metric: str = resolved.metric
 
-    # ---------- Model loop ----------
     for name, info in models.items():
         try:
-            pipeline: Any = build_pipeline(
+            pipeline: BaseEstimator = build_pipeline(
                 info,
                 X,
                 config,
@@ -53,11 +80,12 @@ def evaluate_models(
                 y,
                 cv=cv,
                 scoring=metric,
-                n_jobs=config.n_jobs
+                n_jobs=config.n_jobs,
             )
 
+            scores = np.array(scores)
             mean_score: float = float(np.mean(scores))
-            best_params = None
+            best_params: Dict[str, Any] | None = None
 
         except Exception as e:
             log_model_score(
@@ -68,7 +96,6 @@ def evaluate_models(
             )
             continue
 
-        # ---------- Logging ----------
         log_model_score(
             name,
             round(mean_score, 4),

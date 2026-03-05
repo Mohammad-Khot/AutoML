@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from automl_engine.planning.config import TaskType
 
 
 @dataclass
@@ -30,7 +31,7 @@ class ResolvedConfig:
     leaks : Any
         Results from data leakage checks.
     """
-    task: str
+    task: TaskType
     metric: str
     models: Dict[str, Any]
     cv_object: Any

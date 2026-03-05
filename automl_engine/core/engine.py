@@ -114,6 +114,8 @@ class AutoMLEngine:
         if save_dir:
             self._persist(save_dir)
 
+        print("success")
+
     def fit_from_df(
         self,
         df: pd.DataFrame,

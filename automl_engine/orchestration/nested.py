@@ -85,6 +85,7 @@ def run_nested_cv(
             pipeline = build_pipeline(
                 spec,
                 X_train,
+                resolved,
                 config,
                 seed=config.seed,
             )
@@ -129,6 +130,7 @@ def run_nested_cv(
         pipeline = build_pipeline(
             spec,
             X_train,
+            resolved,
             config,
             seed=config.seed,
         )

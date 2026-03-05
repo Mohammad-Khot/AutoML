@@ -1,18 +1,22 @@
 # evaluation/evaluate_models.py
+
 from typing import Any, Dict
 import numpy as np
+import warnings
+
 from sklearn.model_selection import cross_val_score
-from sklearn.base import BaseEstimator
+from sklearn.exceptions import ConvergenceWarning
 
 from automl_engine.reporting import log_model_score
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.runtime.state import AutoMLState
+from automl_engine.planning.models.spec import ModelSpec
 
 
 def evaluate_models(
     X: Any,
     y: Any,
-    models: Dict[str, Any],
+    models: Dict[str, ModelSpec],
     cv: Any,
     config: Any,
     resolved: Any,
@@ -21,39 +25,13 @@ def evaluate_models(
     """
     Evaluate candidate models using cross-validation.
 
-    This function builds a preprocessing + model pipeline for each candidate
-    model and evaluates it using sklearn's cross_val_score. It records the
-    mean CV score in the AutoMLState object and logs results through the
-    reporting system.
-
-    No hyperparameter search is performed here — only evaluation of the
-    provided model configurations.
-
-    Parameters
-    ----------
-    X : Any
-        Feature matrix.
-    y : Any
-        Target vector.
-    models : Dict[str, Any]
-        Mapping of model names to model specifications/configurations.
-    cv : Any
-        Cross-validation splitter object.
-    config : Any
-        Global AutoML configuration object.
-    resolved : Any
-        Resolved experiment configuration containing the metric.
-    stage : str
-        Stage label used for logging (e.g., "baseline", "selection").
-
-    Returns
-    -------
-    AutoMLState
-        Updated state object containing model scores and associated pipelines.
+    Builds preprocessing + model pipelines for each candidate model and
+    evaluates them using sklearn's cross_val_score.
     """
 
     state: AutoMLState = AutoMLState()
 
+    # Guard against degenerate CV
     if hasattr(cv, "n_splits") and getattr(cv, "n_splits") < 2:
         log_model_score(
             "ALL",
@@ -65,27 +43,42 @@ def evaluate_models(
 
     metric: str = resolved.metric
 
-    for name, info in models.items():
+    for name, spec in models.items():
+
         try:
-            pipeline: BaseEstimator = build_pipeline(
-                info,
-                X,
-                config,
+            pipeline = build_pipeline(
+                spec=spec,
+                X=X,
+                resolved=resolved,
+                config=config,
                 seed=config.seed,
             )
 
-            scores: np.ndarray = cross_val_score(
-                pipeline,
-                X,
-                y,
-                cv=cv,
-                scoring=metric,
-                n_jobs=config.n_jobs,
-            )
+            # Treat convergence warnings as failures
+            with warnings.catch_warnings():
+                warnings.filterwarnings("error", category=ConvergenceWarning)
 
-            scores = np.array(scores)
+                scores = cross_val_score(
+                    pipeline,
+                    X,
+                    y,
+                    cv=cv,
+                    scoring=metric,
+                    n_jobs=config.n_jobs,
+                )
+
+            scores = np.asarray(scores)
             mean_score: float = float(np.mean(scores))
-            best_params: Dict[str, Any] | None = None
+            best_params = None
+
+        except ConvergenceWarning:
+            log_model_score(
+                name,
+                "SKIPPED: convergence failure",
+                stage=stage,
+                log=config.log,
+            )
+            continue
 
         except Exception as e:
             log_model_score(

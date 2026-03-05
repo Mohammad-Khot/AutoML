@@ -1,7 +1,8 @@
 # planning/experiment/resolver.py
 
 import pandas as pd
-from typing import Literal
+from typing import cast
+
 from sklearn.preprocessing import LabelEncoder
 
 from automl_engine.data import (
@@ -27,10 +28,13 @@ from automl_engine.planning.models.selector import (
 from automl_engine.planning.metadata import DataInfo
 
 from automl_engine.planning.experiment.resolved import ResolvedConfig
+from automl_engine import AutoMLConfig
+from automl_engine.planning.config import TaskType
+from automl_engine.planning.models.spec import ModelSpec
 
 
 class ExperimentResolver:
-    def __init__(self, config: object, seed: int) -> None:
+    def __init__(self, config: AutoMLConfig, seed: int) -> None:
         """
         Initialize the ExperimentResolver.
 
@@ -69,7 +73,7 @@ class ExperimentResolver:
         leaks = run_leakage_checks(X, y)
 
         # Task inference
-        task: Literal["classification", "regression"] = self.config.task or infer_task(y)
+        task: TaskType = cast(TaskType, self.config.task or infer_task(y))
 
         # Label encoding
         label_encoder: LabelEncoder | None = None
@@ -87,8 +91,10 @@ class ExperimentResolver:
         data_info: DataInfo = DataInfo.from_data(X, y)
 
         # Models
-        models: dict[str, dict] = dict(MODEL_REGISTRY[task])
-        models = self._filter_models(models, data_info)
+        models: dict[str, ModelSpec] = self._filter_models(
+            dict(MODEL_REGISTRY[task]),
+            data_info
+        )
 
         # Cross-validation object
         cv_object: object = get_cv_object(
@@ -112,9 +118,9 @@ class ExperimentResolver:
 
     def _filter_models(
         self,
-        models: dict[str, dict],
+        models: dict[str, ModelSpec],
         data_info: DataInfo,
-    ) -> dict[str, dict]:
+    ) -> dict[str, ModelSpec]:
         """
         Filter models based on configuration constraints and dataset properties.
 
@@ -133,7 +139,7 @@ class ExperimentResolver:
         Raises:
             ValueError: If no models remain after filtering.
         """
-        cfg = self.config
+        cfg: AutoMLConfig = self.config
 
         if cfg.allowed_models:
             models = {
@@ -152,14 +158,14 @@ class ExperimentResolver:
             models = {
                 name: info
                 for name, info in models.items()
-                if info["compute_cost"] == COST_LOW
+                if info.compute_cost == COST_LOW
             }
 
         elif cfg.max_compute == "medium":
             models = {
                 name: info
                 for name, info in models.items()
-                if info["compute_cost"] in (COST_LOW, COST_MEDIUM)
+                if info.compute_cost in (COST_LOW, COST_MEDIUM)
             }
 
         if not models:

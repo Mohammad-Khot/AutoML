@@ -1,34 +1,14 @@
-# run_automl_benchmark.py
-
-"""
-AutoML Benchmark Harness
-
-Runs your AutoML engine across many datasets automatically.
-
-Features
---------
-- 30+ OpenML benchmark datasets
-- multiple random seeds
-- failure logging
-- runtime tracking
-- reproducibility checks
-- CSV report generation
-"""
-
-import time
-import traceback
 from pathlib import Path
-
+import traceback
 import pandas as pd
 import openml
 from tqdm import tqdm
-from joblib import Parallel, delayed
 
 from automl_engine import AutoMLEngine, AutoMLConfig
 
 
 # --------------------------------------------------
-# CONFIG
+# Benchmark settings
 # --------------------------------------------------
 
 OUTPUT_DIR = Path("automl_benchmark")
@@ -38,13 +18,11 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
 DATASET_LIMIT = 30
-SEEDS = [0, 1, 2, 42]
-
-N_JOBS = 1   # increase to CPU count if desired
+SEEDS = [0, 42, 570]
 
 
 # --------------------------------------------------
-# Download dataset
+# Download OpenML dataset
 # --------------------------------------------------
 
 def download_dataset(dataset_id):
@@ -66,130 +44,178 @@ def download_dataset(dataset_id):
 
 
 # --------------------------------------------------
-# Fetch OpenML benchmark suite
+# Build dataset suite
 # --------------------------------------------------
 
 def build_dataset_suite(limit=30):
 
-    print("\nDownloading OpenML benchmark datasets...\n")
+    suite = openml.study.get_suite(99)  # OpenML CC18
 
-    benchmark = openml.study.get_suite(99)  # OpenML-CC18
-    dataset_ids = benchmark.data[:limit]
+    dataset_ids = suite.data[:limit]
 
     datasets = []
 
-    for did in tqdm(dataset_ids):
+    for did in tqdm(dataset_ids, desc="Downloading datasets"):
 
         try:
             name, path = download_dataset(did)
             datasets.append((name, path))
 
         except Exception as e:
-            print("Dataset download failed:", did, e)
+            print("Download failed:", did, e)
 
     return datasets
 
 
 # --------------------------------------------------
-# Run AutoML on one dataset
+# Extract results from engine session
+# --------------------------------------------------
+
+def extract_results(engine: AutoMLEngine):
+
+    session = engine.session_
+
+    best_model = session.best_model_name
+    scores = session.search_state.scores
+
+    best_score = scores.get(best_model)
+
+    outer = engine.outer_summary()
+
+    outer_mean = None
+    outer_std = None
+
+    if outer is not None:
+        outer_mean = outer["mean"]
+        outer_std = outer["std"]
+
+    return {
+        "best_model": best_model,
+        "score": best_score,
+        "outer_mean": outer_mean,
+        "outer_std": outer_std,
+        "runtime": engine._runtime,
+    }
+
+
+# --------------------------------------------------
+# Run engine once
 # --------------------------------------------------
 
 def run_single_dataset(dataset_name, path, seed):
-
-    start = time.time()
 
     try:
 
         config = AutoMLConfig(
             seed=seed,
-            nested_cv=True,
-            show_optuna_plots=False
+
+            # keep automatic inference
+            task=None,
+            metric=None,
+
+            # quiet benchmark mode
+            log=False,
+            show_optuna_plots=False,
+            return_optuna_plots=False,
+
+            # keep evaluation realistic
+            nested_cv=False,
+
+            # optional compute control
+            max_compute="high",
         )
 
         engine = AutoMLEngine(config)
 
         engine.fit_from_path(path)
 
-        summary = engine.summary()
-
-        runtime = time.time() - start
+        results = extract_results(engine)
 
         return {
             "dataset": dataset_name,
             "seed": seed,
             "status": "SUCCESS",
-            "runtime_sec": runtime,
-            "summary": str(summary)
+            "best_model": results["best_model"],
+            "score": results["score"],
+            "outer_mean": results["outer_mean"],
+            "outer_std": results["outer_std"],
+            "runtime_sec": results["runtime"],
         }
 
     except Exception as e:
-
-        runtime = time.time() - start
 
         return {
             "dataset": dataset_name,
             "seed": seed,
             "status": "FAILED",
-            "runtime_sec": runtime,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            "traceback": traceback.format_exc(),
         }
 
 
 # --------------------------------------------------
-# Run full benchmark
+# Run benchmark
 # --------------------------------------------------
 
 def run_benchmark():
 
     datasets = build_dataset_suite(DATASET_LIMIT)
 
-    jobs = []
-
-    for name, path in datasets:
-        for seed in SEEDS:
-            jobs.append((name, path, seed))
-
-    print("\nRunning AutoML benchmark...\n")
-
-    results = Parallel(n_jobs=N_JOBS)(
-        delayed(run_single_dataset)(name, path, seed)
-        for name, path, seed in tqdm(jobs)
-    )
-
-    df = pd.DataFrame(results)
+    results = []
 
     results_file = OUTPUT_DIR / "benchmark_results.csv"
-    df.to_csv(results_file, index=False)
 
-    print("\nBenchmark finished.")
-    print("Results saved to:", results_file)
+    for dataset_name, path in datasets:
 
-    summarize_results(df)
+        dataset_results = []
+
+        for seed in SEEDS:
+
+            print(f"\nRunning {dataset_name} | seed={seed}")
+
+            result = run_single_dataset(dataset_name, path, seed)
+
+            results.append(result)
+            dataset_results.append(result)
+
+        # --------------------------------------------------
+        # SAVE AFTER EACH DATASET
+        # --------------------------------------------------
+
+        df = pd.DataFrame(results)
+        df.to_csv(results_file, index=False)
+
+        print(f"Saved results after dataset: {dataset_name}")
+
+    print("\nBenchmark complete")
+    print("Results saved:", results_file)
+
+    summarize(pd.DataFrame(results))
 
 
 # --------------------------------------------------
-# Basic analysis
+# Benchmark summary
 # --------------------------------------------------
 
-def summarize_results(df):
-
-    print("\n===== BENCHMARK SUMMARY =====\n")
+def summarize(df):
 
     total = len(df)
+
     failures = df[df.status == "FAILED"]
+
+    print("\n===== BENCHMARK SUMMARY =====")
 
     print("Total runs:", total)
     print("Failures:", len(failures))
     print("Success rate:", round((total - len(failures)) / total * 100, 2), "%")
 
     if len(failures) > 0:
-        print("\nFailed datasets:")
-        print(failures[["dataset", "seed", "error"]].head())
+        print("\nFailed runs:")
+        print(failures[["dataset", "seed", "error"]])
 
 
 # --------------------------------------------------
-# MAIN
+# Main
 # --------------------------------------------------
 
 if __name__ == "__main__":

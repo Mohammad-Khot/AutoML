@@ -4,9 +4,11 @@ from typing import Any, Dict, Tuple
 import numpy as np
 from sklearn.model_selection import cross_val_score, train_test_split
 
+from automl_engine.planning.experiment.resolved import ResolvedConfig
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.reporting import log_model_score
 from automl_engine.evaluation import get_cv_object, get_scorer_safe
+from automl_engine import AutoMLConfig
 
 
 def scout_models(
@@ -14,7 +16,8 @@ def scout_models(
     y: Any,
     models: Dict[str, Any],
     cv: Any,
-    config: Any
+    resolved: ResolvedConfig,
+    config: AutoMLConfig
 ) -> Tuple[Dict[str, Any], Dict[str, float]]:
     """
     Perform a lightweight scouting phase to rank candidate models using cross-validation.
@@ -83,7 +86,7 @@ def scout_models(
     scorer = get_scorer_safe(config.metric)
 
     for name, info in models.items():
-        pipeline = build_pipeline(info, X, config, seed=config.seed)
+        pipeline = build_pipeline(info, X, resolved, config, seed=config.seed)
 
         try:
             scores = cross_val_score(

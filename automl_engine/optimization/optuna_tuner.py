@@ -77,6 +77,8 @@ def run_optuna(
     runs optimization using the defined objective function, and
     returns the completed study object.
     """
+    if not config.log:
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     sampler = optuna.samplers.TPESampler(seed=seed)
     pruner = optuna.pruners.MedianPruner()

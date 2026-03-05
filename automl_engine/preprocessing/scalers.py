@@ -10,7 +10,7 @@ from sklearn.preprocessing import (
     MaxAbsScaler,
 )
 
-from automl_engine import AutoMLConfig
+from automl_engine.planning.experiment.resolved import ResolvedConfig
 
 
 SCALERS: dict[str, type[BaseEstimator]] = {
@@ -24,7 +24,7 @@ SCALERS: dict[str, type[BaseEstimator]] = {
 def select_scaler_strategy(
     model_info: Optional[dict],
     X: pd.DataFrame,
-    config: AutoMLConfig,
+    config: ResolvedConfig,
     force: Optional[bool] = None,
 ) -> Union[BaseEstimator, str]:
     """

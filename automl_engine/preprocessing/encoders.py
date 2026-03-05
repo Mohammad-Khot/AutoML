@@ -3,7 +3,7 @@
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder
 from sklearn.base import TransformerMixin
-from automl_engine import AutoMLConfig
+from automl_engine.planning.experiment.resolved import ResolvedConfig
 
 
 ENCODERS: dict[str, callable] = {
@@ -17,7 +17,7 @@ ENCODERS: dict[str, callable] = {
 
 def select_encoder_strategy(
     X: pd.DataFrame,
-    config: AutoMLConfig
+    config: ResolvedConfig
 ) -> TransformerMixin | str:
     """
     Select and return an appropriate categorical encoding strategy.

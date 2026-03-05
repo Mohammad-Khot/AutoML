@@ -6,12 +6,12 @@ from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.impute import KNNImputer, SimpleImputer, IterativeImputer
 from sklearn.base import BaseEstimator
 
-from automl_engine import AutoMLConfig
+from automl_engine.planning.experiment.resolved import ResolvedConfig
 
 
 def select_imputer_strategy(
     X: pd.DataFrame,
-    config: AutoMLConfig
+    config: ResolvedConfig
 ) -> Tuple[Optional[BaseEstimator], Optional[BaseEstimator]]:
     """
     Select and configure numeric and categorical imputation strategies

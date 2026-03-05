@@ -11,6 +11,7 @@ from automl_engine.reporting import print_section
 from .workflow import execute_training_workflow
 from .. import AutoMLConfig
 from ..planning.experiment.resolved import ResolvedConfig
+from ..planning.models.spec import ModelSpec
 from ..runtime.state import AutoMLState
 
 
@@ -28,7 +29,7 @@ class ModelTrainer:
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        models: Dict[str, Dict[str, Any]],
+        models: Dict[str, ModelSpec],
         outer_cv: BaseCrossValidator,
         resolved: ResolvedConfig,
     ) -> tuple[Any, AutoMLState, list[float], str, Any]:
@@ -53,7 +54,8 @@ class ModelTrainer:
             y,
             models,
             outer_cv,
-            self.config,
+            resolved,
+            self.config
         )
 
         # ---------- Nested Evaluation + Selection + Optimization ----------

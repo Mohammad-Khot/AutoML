@@ -26,41 +26,9 @@ def execute_training_workflow(
     outer_cv: Any,
     config: AutoMLConfig,
     resolved: ResolvedConfig,
-) -> tuple[Any, AutoMLState, list[float], str] | tuple[Any, AutoMLState, list[float], str, dict[str, Figure] | None]:
-    """
-    Execute the full training workflow including model evaluation, optional nested
-    cross-validation, final model fitting, and optional hyperparameter optimization.
+) -> tuple[Any, AutoMLState, list[float], str, dict[str, Figure] | None]:
 
-    The workflow performs:
-    1. Standard cross-validation if nested CV is disabled.
-    2. Nested cross-validation for model selection if enabled.
-    3. Final evaluation of all models on the full dataset.
-    4. Hyperparameter optimization using Optuna for the selected best model.
-
-    Parameters
-    ----------
-    X : pd.DataFrame
-        Feature matrix.
-    y : pd.Series
-        Target vector.
-    models : Dict[str, ModelSpec]
-        Dictionary mapping model names to their specifications.
-    outer_cv : Any
-        Cross-validation strategy used for outer evaluation.
-    config : AutoMLConfig
-        User configuration for the AutoML workflow.
-    resolved : ResolvedConfig
-        Resolved experiment configuration including task and metric.
-
-    Returns
-    -------
-    tuple
-        If nested CV is disabled:
-            (best_pipeline, state, scores, best_model_name)
-
-        If nested CV is enabled:
-            (tuned_pipeline, state, outer_scores, best_model_name, optuna_plots)
-    """
+    optuna_plots: dict[str, Figure] | None = None
 
     # ---------- Standard CV ----------
     if not config.nested_cv:
@@ -77,10 +45,19 @@ def execute_training_workflow(
             "OUTER_CV",
         )
 
+        if not state.scores:
+            raise RuntimeError("No models were successfully evaluated.")
+
         best_model_name: str = max(state.scores, key=state.scores.get)
         best_pipeline: Any = state.get_pipeline(best_model_name)
 
-        return best_pipeline, state, list(state.scores.values()), best_model_name
+        return (
+            best_pipeline,
+            state,
+            list(state.scores.values()),
+            best_model_name,
+            None,
+        )
 
     # ---------- Nested ----------
     if config.log:
@@ -133,12 +110,12 @@ def execute_training_workflow(
     pipeline: Any = build_pipeline(
         best_info,
         X,
+        resolved,
         config,
         seed=config.seed,
     )
 
     search_space: Any = best_info.search_space
-    optuna_plots: dict[str, Figure] | None = None
 
     if config.optuna.enabled and search_space is not None:
         tuned_pipeline: Any
@@ -166,8 +143,16 @@ def execute_training_workflow(
 
     else:
         if config.log and config.optuna.enabled:
-            print(f"No hyperparameters to tune for '{best_model_name}'. Skipping optimization.")
+            print(
+                f"No hyperparameters to tune for '{best_model_name}'. Skipping optimization."
+            )
 
         tuned_pipeline = pipeline.fit(X, y)
 
-    return tuned_pipeline, state, outer_scores, best_model_name, optuna_plots
+    return (
+        tuned_pipeline,
+        state,
+        outer_scores,
+        best_model_name,
+        optuna_plots,
+    )

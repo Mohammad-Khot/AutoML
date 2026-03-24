@@ -4,17 +4,18 @@ from typing import Any, Dict
 import pandas as pd
 from sklearn.base import BaseEstimator
 
+from automl_engine.planning.experiment import ResolvedConfig
+from automl_engine.planning.models import ModelSpec
 from automl_engine.preprocessing import build_pipeline
 
 
 def finalize_model(
     best_model_name: str,
     state: Any,
-    models: Dict[str, Dict[str, Any]],
+    models: Dict[str, ModelSpec],
     X: pd.DataFrame,
     y: Any,
-    config: Any,
-    seed: int | None,
+    resolved: ResolvedConfig,
 ) -> BaseEstimator:
     """
     Finalize and fit the best-performing model pipeline.
@@ -34,10 +35,8 @@ def finalize_model(
         Feature dataset.
     y : Any
         Target variable.
-    config : Any
+    resolved : ResolvedConfig
         AutoML configuration object.
-    seed : int | None
-        Random seed for reproducibility.
 
     Returns
     -------
@@ -51,9 +50,7 @@ def finalize_model(
     if pipeline is None:
         pipeline = build_pipeline(
             best_info,
-            X,
-            config,
-            seed=seed,
+            resolved,
         )
 
     assert pipeline is not None

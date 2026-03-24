@@ -1,4 +1,4 @@
-# automl_engine/__init__.py
+# core/__init__.py
 
 from .engine import AutoMLEngine
 

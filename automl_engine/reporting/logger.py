@@ -6,8 +6,8 @@ from typing import Final, Union
 from .console import CONSOLE_WIDTH
 
 
-STAGE_W: Final[int] = 10
-NAME_W: Final[int] = 15
+STAGE_W: Final[int] = 12
+NAME_W: Final[int] = 20
 CONTENT_W: Final[int] = CONSOLE_WIDTH - STAGE_W - NAME_W
 
 

@@ -14,7 +14,7 @@ from sklearn.datasets import (
 from automl_engine import AutoMLEngine, AutoMLConfig
 from automl_engine.reporting.console import CONSOLE_WIDTH
 
-DATA_DIR = Path("temp_datasets")
+DATA_DIR = Path("../temp_datasets")
 DATA_DIR.mkdir(exist_ok=True)
 
 
@@ -106,13 +106,13 @@ def build_datasets():
 # Run AutoML on all datasets
 # --------------------------------------------------
 def main():
+    config = AutoMLConfig()
 
-    config = AutoMLConfig(
-        seed=42,
-        nested_cv=True,
-        show_optuna_plots=False
-    )
-
+    config.runtime.seed = 42
+    config.cv.use_nested_cv = True
+    config.display_optuna_plots = False
+    config.generate_optuna_plots = False
+    # config.models.include_models = ["logistic"]
     paths = build_datasets()
 
     for path in paths:
@@ -122,7 +122,7 @@ def main():
 
         engine = AutoMLEngine(config)
 
-        engine.fit_from_path(path)
+        engine.fit(path)
         engine.summary()
 
 

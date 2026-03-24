@@ -1,11 +1,11 @@
 # data/__init.py
 
-from .leakage import run_leakage_checks
+from .leakage import apply_leakage_policy
 from .loader import load_table
 from .schema import infer_target, infer_task
 
 __all__ = [
-    "run_leakage_checks",
+    "apply_leakage_policy",
     "load_table",
     "infer_target",
     "infer_task",

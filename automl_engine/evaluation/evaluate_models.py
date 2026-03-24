@@ -1,60 +1,56 @@
 # evaluation/evaluate_models.py
 
-from typing import Any, Dict
+from typing import Any
 import numpy as np
 import warnings
 
+import pandas as pd
 from sklearn.model_selection import cross_val_score
 from sklearn.exceptions import ConvergenceWarning
 
+from automl_engine.planning.experiment.resolved import ResolvedConfig
 from automl_engine.reporting import log_model_score
 from automl_engine.preprocessing import build_pipeline
-from automl_engine.runtime.state import AutoMLState
-from automl_engine.planning.models.spec import ModelSpec
+from automl_engine.runtime import AutoMLState
 
 
 def evaluate_models(
-    X: Any,
-    y: Any,
-    models: Dict[str, ModelSpec],
-    cv: Any,
-    config: Any,
-    resolved: Any,
+    X: pd.DataFrame,
+    y: pd.Series,
+    resolved: ResolvedConfig,
     stage: str,
+    cv_override: Any | None = None,
 ) -> AutoMLState:
-    """
-    Evaluate candidate models using cross-validation.
 
-    Builds preprocessing + model pipelines for each candidate model and
-    evaluates them using sklearn's cross_val_score.
-    """
+    # --- Aliases ---
+    runtime = resolved.runtime
+    metric = resolved.problem.metric
+    models = resolved.artifacts.models
+
+    # 👇 THE FIX
+    cv = cv_override if cv_override is not None else resolved.artifacts.cv_object
 
     state: AutoMLState = AutoMLState()
 
-    # Guard against degenerate CV
+    # --- Guard against degenerate CV ---
     if hasattr(cv, "n_splits") and getattr(cv, "n_splits") < 2:
         log_model_score(
             "ALL",
             "SKIPPED: insufficient CV folds",
             stage=stage,
-            log=config.log,
+            log=runtime.log,
         )
         return state
 
-    metric: str = resolved.metric
-
-    for name, spec in models.items():
+    # --- Evaluate models ---
+    for model_name, model_spec in models.items():
 
         try:
             pipeline = build_pipeline(
-                spec=spec,
-                X=X,
+                spec=model_spec,
                 resolved=resolved,
-                config=config,
-                seed=config.seed,
             )
 
-            # Treat convergence warnings as failures
             with warnings.catch_warnings():
                 warnings.filterwarnings("error", category=ConvergenceWarning)
 
@@ -64,43 +60,48 @@ def evaluate_models(
                     y,
                     cv=cv,
                     scoring=metric,
-                    n_jobs=config.n_jobs,
+                    n_jobs=resolved.runtime.n_jobs,
                 )
 
             scores = np.asarray(scores)
             mean_score: float = float(np.mean(scores))
-            best_params = None
 
         except ConvergenceWarning:
             log_model_score(
-                name,
+                model_name,
                 "SKIPPED: convergence failure",
                 stage=stage,
-                log=config.log,
+                log=runtime.log,
             )
             continue
 
         except Exception as e:
-            log_model_score(
-                name,
-                f"ERROR ({type(e).__name__}: {e})",
-                stage=stage,
-                log=config.log,
-            )
-            continue
+            print("\n" + "=" * 60)
+            print(f"[CRASH] Model: {model_name}")
+            print("=" * 60)
+            raise
+
+        # except Exception as e:
+        #     log_model_score(
+        #         model_name,
+        #         f"ERROR ({type(e).__name__}: {e})",
+        #         stage=stage,
+        #         log=runtime.log,
+        #     )
+        #     continue
 
         log_model_score(
-            name,
+            model_name,
             round(mean_score, 4),
             stage=stage,
-            log=config.log,
+            log=runtime.log,
         )
 
         state.update(
-            name,
+            model_name,
             mean_score,
             pipeline=pipeline,
-            params=best_params,
+            params=None,
         )
 
     return state

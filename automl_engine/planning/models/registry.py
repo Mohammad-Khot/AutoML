@@ -39,19 +39,11 @@ COST_HIGH = "high"
 # ---------------------------
 # SEARCH SPACES
 # ---------------------------
-
 def logistic_space(trial):
-    # l1_ratio requires elasticnet penalty and saga solver to avoid crashing
-    penalty = trial.suggest_categorical("model__penalty", ["l2", "l1", "elasticnet"])
-    params = {
-        "model__C": trial.suggest_float("model__C", 1e-4, 100, log=True),
-        "model__penalty": penalty,
-        "model__solver": "saga",  # Saga supports all penalties
-        "model__max_iter": 1000  # High max_iter prevents convergence warnings
+    return {
+        "model__C": trial.suggest_float("model__C", 1e-3, 10, log=True),
+        "model__l1_ratio": trial.suggest_float("model__l1_ratio", 0.0, 1.0),
     }
-    if penalty == "elasticnet":
-        params["model__l1_ratio"] = trial.suggest_float("model__l1_ratio", 0.0, 1.0)
-    return params
 
 
 def ridge_space(trial):
@@ -198,7 +190,7 @@ MODEL_REGISTRY = MappingProxyType({
     "classification": {
         "logistic_regression": ModelSpec(
             name="Logistic Regression",
-            factory=lambda: LogisticRegression(),
+            factory=lambda: LogisticRegression(solver="saga", max_iter=10_000),
 
             family="linear",
 

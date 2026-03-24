@@ -56,30 +56,11 @@ def print_result_block(
     model: str,
     metric: str,
     mean: float,
-    std: float,
+    std: float | None,
     runtime: float,
+    label: str = "Performance",
 ) -> None:
-    """
-    Print the final AutoML result summary block.
 
-    Parameters
-    ----------
-    model : str
-        Name of the best-performing model.
-    metric : str
-        Evaluation metric used.
-    mean : float
-        Mean cross-validation score.
-    std : float
-        Standard deviation of the score.
-    runtime : float
-        Total runtime in seconds.
-
-    Returns
-    -------
-    None
-        Prints formatted result summary to stdout.
-    """
     line: str = "=" * CONSOLE_WIDTH
 
     print("\n" + line)
@@ -87,8 +68,19 @@ def print_result_block(
     print(line)
 
     print(f"{'Best Model':<15}: {model}")
-    print(f"{'Performance':<15}: {metric} = {mean:.4f} ± {std:.4f}")
-    print(f"{'Runtime':<15}: {runtime:.2f}s")
+
+    is_ci = "Nested CV" in label  # 🔥 auto-detect
+
+    if std is not None:
+        if is_ci:
+            perf_str = f"{metric} = {mean:.4f} ± {std:.4f} (95% CI)"
+        else:
+            perf_str = f"{metric} = {mean:.4f} ± {std:.4f}"
+    else:
+        perf_str = f"{metric} = {mean:.4f}"
+
+    print(f"{label:<22}: {perf_str}")
+    print(f"{'Runtime':<22}: {runtime:.2f}s")
 
     print(line)
 

@@ -8,6 +8,7 @@ from automl_engine.planning.models.registry import (
     COST_LOW,
     COST_HIGH,
 )
+from ..planning.experiment import ResolvedConfig
 
 
 def optimize_model(
@@ -18,7 +19,7 @@ def optimize_model(
     model_name: str,
     cv: Any,
     scoring: str,
-    config: Any,
+    resolved: ResolvedConfig,
 ) -> Tuple[Any, Any]:
     """
     Optimize a model pipeline using Optuna hyperparameter tuning.
@@ -35,13 +36,13 @@ def optimize_model(
         model_name: Name of the model in the registry.
         cv: Cross-validation strategy.
         scoring: Scoring metric used for evaluation.
-        config: AutoML configuration object.
+        resolved: AutoML configuration object.
 
     Returns:
         Tuple[Any, Any]: The fitted optimized pipeline and the Optuna study.
     """
     n_trials: int = resolve_trials(
-        config.optuna.n_trials,
+        resolved.optuna.n_trials,
         task,
         model_name,
     )
@@ -54,11 +55,11 @@ def optimize_model(
         model_name=model_name,
         cv=cv,
         scoring=scoring,
-        direction=config.optuna.direction,
-        config=config,
+        direction=resolved.optuna.direction,
+        resolved=resolved,
         n_trials=n_trials,
-        n_jobs=config.optuna.n_jobs,
-        seed=config.optuna.seed,
+        n_jobs=resolved.optuna.n_jobs,
+        seed=resolved.optuna.seed,
     )
 
     pipeline.set_params(**study.best_params)
@@ -90,14 +91,23 @@ def resolve_trials(
     if config_trials is not None:
         return config_trials
 
-    meta: dict = MODEL_REGISTRY[task][model_name]
-    cost: str = meta.get("compute_cost", COST_MEDIUM)
+    meta = MODEL_REGISTRY[task][model_name]
 
-    if cost == COST_LOW:
-        return 30
-    if cost == COST_MEDIUM:
-        return 75
+    cost = meta.get("training_cost", COST_MEDIUM)
+    sensitivity = meta.get("tuning_complexity", "medium")
+
+    # base from sensitivity
+    if sensitivity == "low":
+        trials = 20
+    elif sensitivity == "medium":
+        trials = 60
+    else:
+        trials = 120
+
+    # adjust for cost
     if cost == COST_HIGH:
-        return 150
+        trials = int(trials * 0.6)
+    elif cost == COST_LOW:
+        trials = int(trials * 1.2)
 
-    return 75
+    return trials

@@ -7,6 +7,7 @@ from optuna.study import Study
 from sklearn.base import clone, BaseEstimator
 from sklearn.model_selection import cross_val_score
 
+from automl_engine.planning.experiment import ResolvedConfig
 from automl_engine.planning.models.registry import MODEL_REGISTRY
 
 
@@ -32,14 +33,14 @@ def objective(
 
     spec = MODEL_REGISTRY[task][model_name]
 
-    search_space = spec.search_space
+    hyperparameter_space = spec.hyperparameter_space
 
-    if search_space is None:
+    if hyperparameter_space is None:
         raise ValueError(
-            f"No search_space defined for model '{model_name}' under task '{task}'."
+            f"No hyperparameter_space defined for model '{model_name}' under task '{task}'."
         )
 
-    params = search_space(trial)
+    params = hyperparameter_space(trial)
 
     model: BaseEstimator = cast(BaseEstimator, clone(pipeline))
     model.set_params(**params)
@@ -65,7 +66,7 @@ def run_optuna(
     cv: Any,
     scoring: str | Callable,
     direction: str,
-    config: Any,
+    resolved: ResolvedConfig,
     n_trials: int = 100,
     n_jobs: int = 1,
     seed: int = 42,
@@ -77,13 +78,13 @@ def run_optuna(
     runs optimization using the defined objective function, and
     returns the completed study object.
     """
-    if not config.log:
+    if not resolved.runtime.log:
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     sampler = optuna.samplers.TPESampler(seed=seed)
     pruner = optuna.pruners.MedianPruner()
 
-    study_name = f"{task}_{model_name}_{scoring}_seed{config.seed}"
+    study_name = f"{task}_{model_name}_{scoring}_seed{resolved.runtime.seed}"
 
     study = optuna.create_study(
         study_name=study_name,
@@ -105,6 +106,7 @@ def run_optuna(
         ),
         n_trials=n_trials,
         n_jobs=n_jobs,
+        timeout=600
     )
 
     return study

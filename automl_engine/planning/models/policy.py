@@ -21,7 +21,7 @@ def select_best_model(
 
     Tie-breaking order:
     1. Highest score
-    2. Model priority (lower value indicates higher priority)
+    2. Model tie_breaker_score (lower value indicates higher tie_breaker_score)
     3. Lexicographic order of the model name
     """
 
@@ -46,7 +46,7 @@ def select_best_model(
     return min(
         tied,
         key=lambda name: (
-            models[name].priority,
+            models[name].tie_breaker_score,
             name,
         ),
     )

@@ -1,54 +1,26 @@
 # orchestration/nested.py
 
+from typing import Any, List
+
+from automl_engine.planning.experiment import ResolvedConfig
 from automl_engine.preprocessing import build_pipeline
-
-from automl_engine.planning.models import (
-    select_best_model
-)
-
-from automl_engine.evaluation import get_scorer_safe, get_cv_object
-
-from automl_engine.reporting import (
-    print_subsection,
-    log_model_score,
-)
-
-from automl_engine.planning.models.spec import ModelSpec
-
-from typing import Any, Dict, List
+from automl_engine.planning.models import select_best_model
+from automl_engine.evaluation import get_scorer_safe, get_cv_object, evaluate_models
+from automl_engine.reporting import print_subsection, log_model_score
 
 
 def run_nested_cv(
     X: Any,
     y: Any,
-    models: Dict[str, ModelSpec],
-    outer_cv: Any,
-    config: Any,
-    resolved: Any,
+    resolved: ResolvedConfig,
 ) -> dict[str, list[float] | list[str]]:
-    """
-    Execute nested cross-validation.
 
-    The function performs:
-    1. Outer CV for estimating generalization performance.
-    2. Inner CV for model selection on each outer training split.
-
-    For each outer fold:
-    - Inner CV evaluates all candidate models.
-    - The best-performing model is selected.
-    - That model is retrained on the outer training data.
-    - Performance is measured on the outer test set.
-
-    Special handling is applied when classification folds contain
-    extremely small class distributions (fallback to a dummy model).
-
-    Returns
-    -------
-    dict[str, list[float] | list[str]]
-        Dictionary containing:
-        - "outer_scores": scores obtained on each outer fold
-        - "selected_models": model name selected for each fold
-    """
+    # --- Aliases ---
+    runtime = resolved.runtime
+    models = resolved.artifacts.models
+    outer_cv = resolved.artifacts.cv_object
+    task = resolved.problem.task
+    metric = resolved.problem.metric
 
     if getattr(outer_cv, "n_splits", 0) < 2:
         raise ValueError(
@@ -58,36 +30,34 @@ def run_nested_cv(
     outer_scores: List[float] = []
     selected_models: List[str] = []
 
-    scorer = get_scorer_safe(resolved.metric)
-    task = resolved.task
+    scorer = get_scorer_safe(metric)
 
-    from automl_engine.evaluation import evaluate_models
-
-    for i, (outer_train_idx, outer_test_idx) in enumerate(
-        outer_cv.split(X, y), 1
+    # --- Outer loop ---
+    for fold_idx, (train_idx, test_idx) in enumerate(
+        outer_cv.split(X, y), start=1
     ):
 
-        if config.log:
-            print_subsection(f"Outer Fold {i}/{outer_cv.n_splits}")
+        if runtime.log:
+            n_splits = getattr(outer_cv, "n_splits", "?")
 
-        X_train = X.iloc[outer_train_idx]
-        X_test = X.iloc[outer_test_idx]
-        y_train = y.iloc[outer_train_idx]
-        y_test = y.iloc[outer_test_idx]
+            print_subsection(f"Outer Fold {fold_idx}/{n_splits}")
 
+        X_train = X.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_train = y.iloc[train_idx]
+        y_test = y.iloc[test_idx]
+
+        # --- Handle tiny class issue ---
         if task == "classification" and y_train.value_counts().min() < 2:
 
-            print("[WARN] Fold has classes with <2 samples. Using dummy model.")
+            print("[WARN] Fold has classes with <2 samples. Using fallback model.")
 
             best_name = "dummy" if "dummy" in models else next(iter(models))
             spec = models[best_name]
 
             pipeline = build_pipeline(
                 spec,
-                X_train,
                 resolved,
-                config,
-                seed=config.seed,
             )
 
             pipeline.fit(X_train, y_train)
@@ -99,40 +69,29 @@ def run_nested_cv(
 
             continue
 
-        safe_inner_cv = get_cv_object(
-            task,
-            y_train,
-            max(2, config.cv_folds - 1),
-            config.seed,
-        )
+        # --- Inner CV (recomputed on training fold) ---
+        inner_cv = get_cv_object(y_train, resolved)
 
         state = evaluate_models(
             X_train,
             y_train,
-            models,
-            safe_inner_cv,
-            config,
             resolved,
-            f"INNER-{i}",
+            stage=f"INNER-{fold_idx}",
+            cv_override=inner_cv
         )
 
         if not state.scores:
-            raise RuntimeError(
-                "All models failed during inner CV evaluation."
-            )
+            raise RuntimeError("All models failed during inner CV evaluation.")
 
         best_name: str = select_best_model(state.scores, models)
-
         selected_models.append(best_name)
 
+        # --- Train best model on full outer train ---
         spec = models[best_name]
 
         pipeline = build_pipeline(
             spec,
-            X_train,
             resolved,
-            config,
-            seed=config.seed,
         )
 
         pipeline.fit(X_train, y_train)
@@ -142,8 +101,8 @@ def run_nested_cv(
         log_model_score(
             best_name,
             score,
-            stage=f"OUTER-{i}",
-            log=config.log,
+            stage=f"OUTER-{fold_idx}",
+            log=runtime.log,
         )
 
         outer_scores.append(score)

@@ -1,7 +1,15 @@
 # runtime/state.py
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, cast, TypedDict
+
+from sklearn.base import BaseEstimator
+
+
+class ModelEntry(TypedDict):
+    score: float
+    pipeline: Optional[BaseEstimator]
+    params: Optional[Dict[str, Any]]
 
 
 class AutoMLState:
@@ -20,14 +28,14 @@ class AutoMLState:
         Returns:
             None
         """
-        self.models: Dict[str, Dict[str, Any]] = {}
+        self.models: Dict[str, ModelEntry] = {}
 
     def update(
-        self,
-        model_name: str,
-        score: float,
-        pipeline: Optional[Any] = None,
-        params: Optional[Dict[str, Any]] = None,
+            self,
+            model_name: str,
+            score: float,
+            pipeline: Optional[BaseEstimator] = None,
+            params: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Add or update a model entry in the state.
@@ -49,7 +57,8 @@ class AutoMLState:
             raise TypeError("score must be numeric")
 
         if math.isnan(score):
-            raise ValueError("score cannot be NaN")
+            print(f"[WARN] {model_name} produced NaN — assigning -inf")
+            score = float("-inf")
 
         self.models[model_name] = {
             "score": float(score),
@@ -66,48 +75,14 @@ class AutoMLState:
             Dictionary mapping model names to float scores.
         """
         return {
-            name: info["score"]
+            name: float(info["score"])
             for name, info in self.models.items()
         }
 
-    def get_pipeline(self, model_name: str) -> Optional[Any]:
-        """
-        Retrieve the stored pipeline for a given model.
+    def get_pipeline(self, model_name: str) -> BaseEstimator:
+        pipeline = self.models.get(model_name, {}).get("pipeline")
 
-        Args:
-            model_name: Name of the model.
+        if pipeline is None:
+            raise KeyError(f"Pipeline not found for model '{model_name}'")
 
-        Returns:
-            The stored pipeline object, or None if not found.
-        """
-        return self.models.get(model_name, {}).get("pipeline")
-
-    def get_params(self, model_name: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve the stored hyperparameters for a given model.
-
-        Args:
-            model_name: Name of the model.
-
-        Returns:
-            Dictionary of parameters if present, otherwise None.
-        """
-        return self.models.get(model_name, {}).get("params")
-
-    def best(self) -> Optional[str]:
-        """
-        Get the name of the best-performing model.
-
-        Returns:
-            Model name with the highest score, or None if no models exist.
-        """
-        return max(self.scores, key=self.scores.get) if self.scores else None
-
-    def as_sorted(self) -> List[Tuple[str, float]]:
-        """
-        Retrieve model scores sorted in descending order.
-
-        Returns:
-            List of (model_name, score) tuples sorted by score descending.
-        """
-        return sorted(self.scores.items(), key=lambda x: x[1], reverse=True)
+        return cast(BaseEstimator, pipeline)

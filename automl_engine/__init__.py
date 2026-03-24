@@ -1,5 +1,7 @@
-from automl_engine.planning.config import AutoMLConfig
-from .core.engine import AutoMLEngine
+# __init__.py
+
+from .planning import AutoMLConfig
+from .core import AutoMLEngine
 
 __all__ = [
     "AutoMLEngine",

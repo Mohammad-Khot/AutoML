@@ -1,13 +1,14 @@
-# planning/experiment/resolver.py
+import warnings
 
 import pandas as pd
 from typing import cast
 
+from sklearn.model_selection import BaseCrossValidator
 from sklearn.preprocessing import LabelEncoder
 
 from automl_engine.data import (
     infer_task,
-    run_leakage_checks,
+    apply_leakage_policy
 )
 
 from automl_engine.evaluation import (
@@ -27,55 +28,63 @@ from automl_engine.planning.models.selector import (
 
 from automl_engine.planning.metadata import DataInfo
 
-from automl_engine.planning.experiment.resolved import ResolvedConfig
 from automl_engine import AutoMLConfig
-from automl_engine.planning.config import TaskType
+from automl_engine.planning.config import MetricName, SearchConfig, ModelSpaceConfig
 from automl_engine.planning.models.spec import ModelSpec
+from automl_engine.planning.experiment.resolved import (
+    ResolvedConfig,
+    ResolvedProblemConfig,
+    ResolvedCVConfig,
+    ResolvedPreprocessingConfig,
+    ResolvedDimensionalityReductionConfig,
+    ResolvedModelSpaceConfig,
+    ResolvedFeatureGenerationConfig,
+    ResolvedSearchConfig,
+    ResolvedDataQualityConfig,
+    ResolvedRuntimeConfig,
+    ResolvedOptunaConfig,
+    ResolvedArtifactsConfig,
+)
 
 
 class ExperimentResolver:
-    def __init__(self, config: AutoMLConfig, seed: int) -> None:
-        """
-        Initialize the ExperimentResolver.
 
-        Args:
-            config: Experiment configuration object containing user-defined settings.
-            seed: Random seed used for reproducibility.
-        """
+    def __init__(self, config: AutoMLConfig) -> None:
         self.config = config
-        self.seed = seed
 
     def resolve(
         self,
         X: pd.DataFrame,
         y: pd.Series,
     ) -> tuple[pd.DataFrame, pd.Series, ResolvedConfig]:
-        """
-        Resolve the full experiment configuration from raw inputs.
 
-        This includes leakage detection, task inference, optional label encoding,
-        metric resolution, model filtering, and cross-validation setup.
-
-        Args:
-            X: Feature dataframe.
-            y: Target series.
-
-        Returns:
-            A tuple containing:
-                - Processed feature dataframe
-                - Processed target series
-                - Fully resolved experiment configuration
-        """
         X = X.copy()
         y = y.copy()
 
-        # Leakage
-        leaks = run_leakage_checks(X, y)
+        # ───────── Leakage Detection ─────────
 
-        # Task inference
-        task: TaskType = cast(TaskType, self.config.task or infer_task(y))
+        X, leaks = apply_leakage_policy(
+            X,
+            y,
+            dq_config=self.config.data_quality,
+        )
 
-        # Label encoding
+        # ───────── Task Inference ─────────
+        if self.config.problem.task is not None:
+            inferred = infer_task(y)
+
+            if inferred != self.config.problem.task:
+                warnings.warn(
+                    f"User-defined task '{self.config.problem.task}' "
+                    f"conflicts with inferred task '{inferred}'. Using user-defined task."
+                )
+
+            task = self.config.problem.task
+
+        else:
+            task = infer_task(y)
+
+        # ───────── Label Encoding ─────────
         label_encoder: LabelEncoder | None = None
         if task == "classification" and not pd.api.types.is_numeric_dtype(y):
             label_encoder = LabelEncoder()
@@ -84,88 +93,153 @@ class ExperimentResolver:
                 index=y.index,
             )
 
-        # Metric resolution
-        metric: str = resolve_metric(task, self.config.metric)
+        # ───────── Metric Resolution ─────────
+        metric: MetricName = resolve_metric(task, self.config.problem.metric)
 
-        # Data info
+        # ───────── Data Metadata ─────────
         data_info: DataInfo = DataInfo.from_data(X, y)
 
-        # Models
+        # ───────── Model Filtering ─────────
         models: dict[str, ModelSpec] = self._filter_models(
             dict(MODEL_REGISTRY[task]),
-            data_info
+            data_info,
+            self.config,
         )
 
-        # Cross-validation object
-        cv_object: object = get_cv_object(
-            task,
-            y,
-            self.config.cv_folds,
-            self.seed,
-        )
-
+        # ───────── Phase 1: Build Resolved Config (without CV object) ─────────
         resolved = ResolvedConfig(
-            task=task,
-            metric=metric,
-            models=models,
-            cv_object=cv_object,
-            data_info=data_info,
-            label_encoder=label_encoder,
-            leaks=leaks,
+
+            problem=ResolvedProblemConfig(
+                task=task,
+                metric=metric,
+                target=self.config.problem.target or "",
+            ),
+
+            cv=ResolvedCVConfig(
+                folds=self.config.cv.folds,
+                strategy=self.config.cv.strategy,
+                use_nested_cv=self.config.cv.use_nested_cv,
+                repeats=self.config.cv.repeats,
+            ),
+
+            preprocessing=ResolvedPreprocessingConfig(
+                scaling_mode=self.config.preprocessing.scaling_mode,
+                scaler_kind=self.config.preprocessing.scaler_kind,
+                encoding_strategy=self.config.preprocessing.encoding_strategy,
+                max_cardinality_one_hot=self.config.preprocessing.max_cardinality_one_hot,
+                feature_selection_method=self.config.preprocessing.feature_selection_method,
+                imputation_strategy=self.config.preprocessing.imputation_strategy,
+                add_missing_indicator=self.config.preprocessing.add_missing_indicator,
+            ),
+
+            feature_generation=ResolvedFeatureGenerationConfig(
+                method=self.config.feature_generation.method,
+                strategy=self.config.feature_generation.strategy,
+                max_polynomial_degree=self.config.feature_generation.max_polynomial_degree,
+                interaction_only=self.config.feature_generation.interaction_only,
+                max_generated_features=self.config.feature_generation.max_generated_features,
+                subsample_ratio=self.config.feature_generation.subsample_ratio,
+            ),
+
+            dimensionality_reduction=ResolvedDimensionalityReductionConfig(
+                method=self.config.dimensionality_reduction.method,
+                n_components=self.config.dimensionality_reduction.n_components,
+                variance_threshold=self.config.dimensionality_reduction.variance_threshold,
+                apply_after_generation=self.config.dimensionality_reduction.apply_after_generation,
+            ),
+
+            models=ResolvedModelSpaceConfig(
+                include_models=self.config.models.include_models,
+                exclude_models=self.config.models.exclude_models,
+                top_k_models=self.config.models.top_k_models,
+                compute_budget=self.config.search.compute_budget,
+            ),
+
+            search=ResolvedSearchConfig(
+                scout_sample_fraction=self.config.search.scout_sample_fraction,
+                scout_folds=self.config.search.scout_folds,
+                time_budget_soft=self.config.search.time_budget_soft,
+                min_improvement_over_dummy=self.config.search.min_improvement_over_dummy,
+            ),
+
+            data_quality=ResolvedDataQualityConfig(
+                leak_handling=self.config.data_quality.leak_handling,
+                id_threshold=self.config.data_quality.id_threshold,
+            ),
+
+            runtime=ResolvedRuntimeConfig(
+                seed=self.config.runtime.seed,
+                n_jobs=self.config.runtime.n_jobs,
+                log=self.config.runtime.log,
+            ),
+
+            optuna=ResolvedOptunaConfig(
+                enabled=self.config.optuna.enabled,
+                n_trials=self.config.optuna.n_trials,
+                direction=self.config.optuna.direction,
+                n_jobs=self.config.optuna.n_jobs,
+                seed=self.config.optuna.seed,
+            ),
+
+            artifacts=ResolvedArtifactsConfig(
+                models=models,
+                cv_object=cast(BaseCrossValidator, None),
+                data_info=data_info,
+                label_encoder=label_encoder,
+                leaks=leaks,
+            ),
+
+            generate_optuna_plots=self.config.generate_optuna_plots,
+            display_optuna_plots=self.config.display_optuna_plots,
         )
+
+        # ───────── Phase 2: Derive CV object ─────────
+        resolved.artifacts.cv_object = get_cv_object(y, resolved)
 
         return X, y, resolved
 
+    @staticmethod
     def _filter_models(
-        self,
         models: dict[str, ModelSpec],
         data_info: DataInfo,
+        config: AutoMLConfig,
     ) -> dict[str, ModelSpec]:
-        """
-        Filter models based on configuration constraints and dataset properties.
 
-        Applies:
-            - Allowed model whitelist
-            - Suitability checks
-            - Compute cost constraints
+        ms_config: ModelSpaceConfig = config.models
+        s_config: SearchConfig = config.search
 
-        Args:
-            models: Dictionary of model metadata keyed by model name.
-            data_info: Metadata about the dataset.
-
-        Returns:
-            Filtered dictionary of models.
-
-        Raises:
-            ValueError: If no models remain after filtering.
-        """
-        cfg: AutoMLConfig = self.config
-
-        if cfg.allowed_models:
+        if ms_config.include_models:
             models = {
                 name: info
                 for name, info in models.items()
-                if name in cfg.allowed_models
+                if name in ms_config.include_models
+            }
+
+        if ms_config.exclude_models:
+            models = {
+                name: info
+                for name, info in models.items()
+                if name not in ms_config.exclude_models
             }
 
         models = {
             name: info
             for name, info in models.items()
-            if is_model_suitable(name, info, data_info)
+            if is_model_suitable(info, data_info)
         }
 
-        if cfg.max_compute == "low":
+        if s_config.compute_budget == "low":
             models = {
                 name: info
                 for name, info in models.items()
-                if info.compute_cost == COST_LOW
+                if info.training_cost == COST_LOW
             }
 
-        elif cfg.max_compute == "medium":
+        elif s_config.compute_budget == "medium":
             models = {
                 name: info
                 for name, info in models.items()
-                if info.compute_cost in (COST_LOW, COST_MEDIUM)
+                if info.training_cost in (COST_LOW, COST_MEDIUM)
             }
 
         if not models:

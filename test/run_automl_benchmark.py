@@ -6,16 +6,17 @@ from tqdm import tqdm
 
 from automl_engine import AutoMLEngine, AutoMLConfig
 
-
 # --------------------------------------------------
 # Benchmark settings
 # --------------------------------------------------
 
-OUTPUT_DIR = Path("automl_benchmark")
+OUTPUT_DIR = Path("../automl_benchmark")
 DATA_DIR = OUTPUT_DIR / "datasets"
+RESULTS_DIR = OUTPUT_DIR / "per_dataset_results"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
+RESULTS_DIR.mkdir(exist_ok=True)
 
 DATASET_LIMIT = 30
 SEEDS = [0, 42, 570]
@@ -26,7 +27,6 @@ SEEDS = [0, 42, 570]
 # --------------------------------------------------
 
 def download_dataset(dataset_id):
-
     dataset = openml.datasets.get_dataset(dataset_id)
 
     X, y, categorical, attribute_names = dataset.get_data(
@@ -48,8 +48,7 @@ def download_dataset(dataset_id):
 # --------------------------------------------------
 
 def build_dataset_suite(limit=30):
-
-    suite = openml.study.get_suite(99)  # OpenML CC18
+    suite = openml.study.get_suite(99)
 
     dataset_ids = suite.data[:limit]
 
@@ -72,7 +71,6 @@ def build_dataset_suite(limit=30):
 # --------------------------------------------------
 
 def extract_results(engine: AutoMLEngine):
-
     session = engine.session_
 
     best_model = session.best_model_name
@@ -103,25 +101,16 @@ def extract_results(engine: AutoMLEngine):
 # --------------------------------------------------
 
 def run_single_dataset(dataset_name, path, seed):
-
     try:
 
         config = AutoMLConfig(
             seed=seed,
-
-            # keep automatic inference
             task=None,
             metric=None,
-
-            # quiet benchmark mode
             log=False,
             show_optuna_plots=False,
             return_optuna_plots=False,
-
-            # keep evaluation realistic
             nested_cv=False,
-
-            # optional compute control
             max_compute="high",
         )
 
@@ -158,10 +147,7 @@ def run_single_dataset(dataset_name, path, seed):
 # --------------------------------------------------
 
 def run_benchmark():
-
     datasets = build_dataset_suite(DATASET_LIMIT)
-
-    results = []
 
     results_file = OUTPUT_DIR / "benchmark_results.csv"
 
@@ -170,27 +156,44 @@ def run_benchmark():
         dataset_results = []
 
         for seed in SEEDS:
-
             print(f"\nRunning {dataset_name} | seed={seed}")
 
             result = run_single_dataset(dataset_name, path, seed)
 
-            results.append(result)
             dataset_results.append(result)
 
-        # --------------------------------------------------
-        # SAVE AFTER EACH DATASET
-        # --------------------------------------------------
+        # ------------------------------------------
+        # SAVE RESULTS FOR THIS DATASET
+        # ------------------------------------------
 
-        df = pd.DataFrame(results)
-        df.to_csv(results_file, index=False)
+        dataset_df = pd.DataFrame(dataset_results)
 
-        print(f"Saved results after dataset: {dataset_name}")
+        dataset_file = RESULTS_DIR / f"{dataset_name}.csv"
+
+        dataset_df.to_csv(dataset_file, index=False)
+
+        print(f"Saved dataset results: {dataset_file}")
+
+    # ------------------------------------------
+    # CONCATENATE ALL RESULTS
+    # ------------------------------------------
+
+    all_files = list(RESULTS_DIR.glob("*.csv"))
+
+    all_results = []
+
+    for file in all_files:
+        df = pd.read_csv(file)
+        all_results.append(df)
+
+    final_df = pd.concat(all_results, ignore_index=True)
+
+    final_df.to_csv(results_file, index=False)
 
     print("\nBenchmark complete")
     print("Results saved:", results_file)
 
-    summarize(pd.DataFrame(results))
+    summarize(final_df)
 
 
 # --------------------------------------------------
@@ -198,7 +201,6 @@ def run_benchmark():
 # --------------------------------------------------
 
 def summarize(df):
-
     total = len(df)
 
     failures = df[df.status == "FAILED"]
@@ -219,5 +221,4 @@ def summarize(df):
 # --------------------------------------------------
 
 if __name__ == "__main__":
-
     run_benchmark()

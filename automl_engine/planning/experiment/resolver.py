@@ -45,6 +45,7 @@ from automl_engine.planning.experiment.resolved import (
     ResolvedOptunaConfig,
     ResolvedArtifactsConfig,
 )
+from automl_engine.planning.sampler import resolve_sampling
 
 
 class ExperimentResolver:
@@ -98,6 +99,9 @@ class ExperimentResolver:
 
         # ───────── Data Metadata ─────────
         data_info: DataInfo = DataInfo.from_data(X, y)
+
+        # ───────── Sampling Resolution ─────────
+        sampling_config = resolve_sampling(self.config, data_info, task)
 
         # ───────── Model Filtering ─────────
         models: dict[str, ModelSpec] = self._filter_models(
@@ -188,6 +192,8 @@ class ExperimentResolver:
                 label_encoder=label_encoder,
                 leaks=leaks,
             ),
+
+            sampling=sampling_config,
 
             generate_optuna_plots=self.config.generate_optuna_plots,
             display_optuna_plots=self.config.display_optuna_plots,

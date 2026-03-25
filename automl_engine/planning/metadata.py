@@ -158,7 +158,9 @@ class DataInfo:
             y_array = np.asarray(y)
             unique_classes, counts = np.unique(y_array, return_counts=True)
 
-            if len(unique_classes) > 1:
+            is_classification = len(unique_classes) < 50
+
+            if is_classification:
                 n_classes = int(len(unique_classes))
                 minority_ratio = float(counts.min() / counts.sum())
 

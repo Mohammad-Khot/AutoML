@@ -18,7 +18,7 @@ from automl_engine.planning.config import (
     CrossValidationStrategy,
     ImputationStrategy,
     FeatureGenerationMethod,
-    DimensionalityReductionMethod, FeatureGenerationStrategy,
+    DimensionalityReductionMethod, FeatureGenerationStrategy, SamplingMethod, SamplingStrategy,
 )
 from automl_engine.planning.metadata import DataInfo
 from automl_engine.planning.models import ModelSpec
@@ -140,11 +140,20 @@ class ResolvedArtifactsConfig:
     leaks: Any
 
 
+# ─────────────── Sampling Method ───────────────
+
+
+@dataclass
+class SamplingConfig:
+    method: SamplingMethod = "auto"
+    strategy: SamplingStrategy = "auto"
+    k_neighbors: int = 5
+
+
 # ─────────────── Root Resolved Config ───────────────
 
 @dataclass(slots=True)
 class ResolvedConfig:
-
     problem: ResolvedProblemConfig
 
     cv: ResolvedCVConfig
@@ -166,6 +175,8 @@ class ResolvedConfig:
     optuna: ResolvedOptunaConfig
 
     artifacts: ResolvedArtifactsConfig
+
+    sampling: SamplingConfig
 
     generate_optuna_plots: bool
     display_optuna_plots: bool

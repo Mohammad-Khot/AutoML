@@ -61,7 +61,7 @@ def scout_models(
             model_info,
             resolved,
         )
-
+        print(pipeline)
         try:
             scores = cross_val_score(
                 pipeline,

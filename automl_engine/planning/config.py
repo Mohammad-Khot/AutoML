@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 from typing import Optional, Literal, get_args, Any, Type, Self
 
-
 # ─────────────── Literal Types ───────────────
 
 ScalingMode = Literal["auto", "force", "none"]
@@ -51,6 +50,9 @@ DimensionalityReductionMethod = Literal[
     "svd",
     "ica",
 ]
+
+SamplingMethod = Literal["auto", "none", "smote", "adasyn", "undersample"]
+SamplingStrategy = Literal["auto"] | float
 
 
 # ─────────────── Problem Definition ───────────────
@@ -104,7 +106,7 @@ class FeatureGenerationConfig:
 
 @dataclass
 class DimensionalityReductionConfig:
-    method: DimensionalityReductionMethod = "pca"
+    method: DimensionalityReductionMethod = "auto"
     n_components: int = 0.95
     variance_threshold: float = 0.95
     apply_after_generation: bool = True
@@ -160,6 +162,16 @@ class OptunaConfig:
     seed: int | None = None
 
 
+# ─────────────── Sampling Method ───────────────
+
+
+@dataclass
+class SamplingConfig:
+    method: SamplingMethod = "auto"
+    strategy: SamplingStrategy = "auto"
+    k_neighbors: int = 5
+
+
 # ─────────────── Root AutoML Config ───────────────
 
 @dataclass
@@ -181,6 +193,8 @@ class AutoMLConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
 
     optuna: OptunaConfig = field(default_factory=OptunaConfig)
+
+    sampling: SamplingConfig = field(default_factory=SamplingConfig)
 
     generate_optuna_plots: bool = True
     display_optuna_plots: bool = True

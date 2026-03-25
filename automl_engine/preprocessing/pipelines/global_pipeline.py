@@ -1,5 +1,3 @@
-from sklearn.pipeline import Pipeline
-
 from ..feature_engineering.vector import VectorFE
 from ..feature_engineering.selector import build_selector
 from ..feature_engineering.dimensionality_reduction import (
@@ -24,4 +22,4 @@ def build_global_pipeline(resolved: ResolvedConfig, model_spec: ModelSpec):
     if dr != "passthrough":
         steps.append(("dr", dr))
 
-    return Pipeline(steps)
+    return steps  # ✅ return list, NOT Pipeline

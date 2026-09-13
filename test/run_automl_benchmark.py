@@ -1,35 +1,30 @@
 from pathlib import Path
 import traceback
+
+import numpy as np
 import pandas as pd
 import openml
 from tqdm import tqdm
 
 from automl_engine import AutoMLEngine, AutoMLConfig
 
-# --------------------------------------------------
-# Benchmark settings
-# --------------------------------------------------
-
-OUTPUT_DIR = Path("../automl_benchmark")
+BASE_DIR = Path(__file__).resolve().parent.parent
+OUTPUT_DIR = BASE_DIR / "automl_benchmark"
 DATA_DIR = OUTPUT_DIR / "datasets"
 RESULTS_DIR = OUTPUT_DIR / "per_dataset_results"
 
-OUTPUT_DIR.mkdir(exist_ok=True)
-DATA_DIR.mkdir(exist_ok=True)
-RESULTS_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 DATASET_LIMIT = 30
 SEEDS = [0, 42, 570]
 
 
-# --------------------------------------------------
-# Download OpenML dataset
-# --------------------------------------------------
-
 def download_dataset(dataset_id):
     dataset = openml.datasets.get_dataset(dataset_id)
 
-    X, y, categorical, attribute_names = dataset.get_data(
+    X, y, _, _ = dataset.get_data(
         dataset_format="dataframe",
         target=dataset.default_target_attribute,
     )
@@ -43,49 +38,29 @@ def download_dataset(dataset_id):
     return dataset.name, path
 
 
-# --------------------------------------------------
-# Build dataset suite
-# --------------------------------------------------
-
 def build_dataset_suite(limit=30):
     suite = openml.study.get_suite(99)
-
-    dataset_ids = suite.data[:limit]
-
     datasets = []
 
-    for did in tqdm(dataset_ids, desc="Downloading datasets"):
-
+    for did in tqdm(suite.data[:limit], desc="Downloading datasets"):
         try:
-            name, path = download_dataset(did)
-            datasets.append((name, path))
-
-        except Exception as e:
-            print("Download failed:", did, e)
+            datasets.append(download_dataset(did))
+        except Exception as exc:
+            print("Download failed:", did, exc)
 
     return datasets
 
 
-# --------------------------------------------------
-# Extract results from engine session
-# --------------------------------------------------
-
 def extract_results(engine: AutoMLEngine):
-    session = engine.session_
-
-    best_model = session.best_model_name
-    scores = session.search_state.scores
-
-    best_score = scores.get(best_model)
-
-    outer = engine.outer_summary()
+    session = engine.session
+    best_model = engine.best_model_name_
+    best_score = engine.best_score_
 
     outer_mean = None
     outer_std = None
-
-    if outer is not None:
-        outer_mean = outer["mean"]
-        outer_std = outer["std"]
+    if session.outer_scores:
+        outer_mean = float(np.mean(session.outer_scores))
+        outer_std = float(np.std(session.outer_scores))
 
     return {
         "best_model": best_model,
@@ -96,28 +71,19 @@ def extract_results(engine: AutoMLEngine):
     }
 
 
-# --------------------------------------------------
-# Run engine once
-# --------------------------------------------------
-
 def run_single_dataset(dataset_name, path, seed):
     try:
-
-        config = AutoMLConfig(
-            seed=seed,
-            task=None,
-            metric=None,
-            log=False,
-            show_optuna_plots=False,
-            return_optuna_plots=False,
-            nested_cv=False,
-            max_compute="high",
-        )
+        config = AutoMLConfig()
+        config.runtime.seed = seed
+        config.runtime.log = False
+        config.cv.use_nested_cv = False
+        config.search.compute_budget = "high"
+        config.generate_optuna_plots = False
+        config.display_optuna_plots = False
+        config.optuna.enabled = False
 
         engine = AutoMLEngine(config)
-
-        engine.fit_from_path(path)
-
+        engine.fit(path)
         results = extract_results(engine)
 
         return {
@@ -131,82 +97,49 @@ def run_single_dataset(dataset_name, path, seed):
             "runtime_sec": results["runtime"],
         }
 
-    except Exception as e:
-
+    except Exception as exc:
         return {
             "dataset": dataset_name,
             "seed": seed,
             "status": "FAILED",
-            "error": str(e),
+            "error": str(exc),
             "traceback": traceback.format_exc(),
         }
 
 
-# --------------------------------------------------
-# Run benchmark
-# --------------------------------------------------
-
 def run_benchmark():
     datasets = build_dataset_suite(DATASET_LIMIT)
-
     results_file = OUTPUT_DIR / "benchmark_results.csv"
 
     for dataset_name, path in datasets:
-
         dataset_results = []
 
         for seed in SEEDS:
             print(f"\nRunning {dataset_name} | seed={seed}")
+            dataset_results.append(run_single_dataset(dataset_name, path, seed))
 
-            result = run_single_dataset(dataset_name, path, seed)
+        pd.DataFrame(dataset_results).to_csv(
+            RESULTS_DIR / f"{dataset_name}.csv",
+            index=False,
+        )
 
-            dataset_results.append(result)
-
-        # ------------------------------------------
-        # SAVE RESULTS FOR THIS DATASET
-        # ------------------------------------------
-
-        dataset_df = pd.DataFrame(dataset_results)
-
-        dataset_file = RESULTS_DIR / f"{dataset_name}.csv"
-
-        dataset_df.to_csv(dataset_file, index=False)
-
-        print(f"Saved dataset results: {dataset_file}")
-
-    # ------------------------------------------
-    # CONCATENATE ALL RESULTS
-    # ------------------------------------------
-
-    all_files = list(RESULTS_DIR.glob("*.csv"))
-
-    all_results = []
-
-    for file in all_files:
-        df = pd.read_csv(file)
-        all_results.append(df)
+    all_results = [pd.read_csv(file) for file in RESULTS_DIR.glob("*.csv")]
+    if not all_results:
+        raise RuntimeError("No benchmark results were generated.")
 
     final_df = pd.concat(all_results, ignore_index=True)
-
     final_df.to_csv(results_file, index=False)
 
     print("\nBenchmark complete")
     print("Results saved:", results_file)
-
     summarize(final_df)
 
 
-# --------------------------------------------------
-# Benchmark summary
-# --------------------------------------------------
-
 def summarize(df):
     total = len(df)
-
     failures = df[df.status == "FAILED"]
 
     print("\n===== BENCHMARK SUMMARY =====")
-
     print("Total runs:", total)
     print("Failures:", len(failures))
     print("Success rate:", round((total - len(failures)) / total * 100, 2), "%")
@@ -215,10 +148,6 @@ def summarize(df):
         print("\nFailed runs:")
         print(failures[["dataset", "seed", "error"]])
 
-
-# --------------------------------------------------
-# Main
-# --------------------------------------------------
 
 if __name__ == "__main__":
     run_benchmark()

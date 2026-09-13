@@ -27,39 +27,27 @@ DEFAULT_METRIC: dict[MLTask, MetricName] = {
     "regression": "r2",
 }
 
+_METRIC_TO_SKLEARN = {**CLASSIFICATION_METRICS, **REGRESSION_METRICS}
+
 
 def get_scorer_safe(metric_name: str) -> Callable:
+    """Resolve AutoML metric aliases to sklearn scorer objects."""
+    sklearn_name = _METRIC_TO_SKLEARN.get(metric_name, metric_name)
     try:
-        return get_scorer(metric_name)
+        return get_scorer(sklearn_name)
     except ValueError as exc:
         raise ValueError(f"Unknown sklearn scorer: {metric_name}") from exc
 
 
+def get_scorer_name(metric_name: str) -> str:
+    """Return the sklearn scoring-string equivalent for an AutoML metric."""
+    return _METRIC_TO_SKLEARN.get(metric_name, metric_name)
+
+
 def resolve_metric(task: MLTask, metric: Optional[MetricName]) -> MetricName:
-    """
-    Resolve and validate the evaluation metric for a given ML task.
-
-    This function determines the appropriate metric to use based on the task type
-    (classification or regression). If no metric is provided, a default metric is
-    selected. It also ensures that the chosen metric is compatible with the task.
-
-    Args:
-        task (MLTask): The machine learning task type (e.g., "classification", "regression").
-        metric (Optional[MetricName]): The user-specified metric, or None to use default.
-
-    Returns:
-        MetricName: A valid metric name compatible with the given task.
-
-    Raises:
-        ValueError: If the metric is invalid for the given task.
-        ValueError: If the task type is unknown.
-    """
-
-    # ───────── Default Metric Resolution ─────────
     if metric is None:
         metric = DEFAULT_METRIC[task]
 
-    # ───────── Classification Validation ─────────
     if task == "classification":
         if metric not in CLASSIFICATION_METRICS:
             raise ValueError(
@@ -68,7 +56,6 @@ def resolve_metric(task: MLTask, metric: Optional[MetricName]) -> MetricName:
             )
         return metric
 
-    # ───────── Regression Validation ─────────
     if task == "regression":
         if metric not in REGRESSION_METRICS:
             raise ValueError(
@@ -77,5 +64,4 @@ def resolve_metric(task: MLTask, metric: Optional[MetricName]) -> MetricName:
             )
         return metric
 
-    # ───────── Unknown Task ─────────
     raise ValueError(f"Unknown task: {task}")

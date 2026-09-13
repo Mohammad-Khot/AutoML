@@ -107,7 +107,7 @@ class FeatureGenerationConfig:
 @dataclass
 class DimensionalityReductionConfig:
     method: DimensionalityReductionMethod = "auto"
-    n_components: int = 0.95
+    n_components: int | float = 0.95
     variance_threshold: float = 0.95
     apply_after_generation: bool = True
 
@@ -157,13 +157,12 @@ class RuntimeConfig:
 class OptunaConfig:
     enabled: bool = True
     n_trials: int = 50
-    direction: str = "maximize"
+    direction: Literal["maximize", "minimize"] = "maximize"
     n_jobs: int = 1
     seed: int | None = None
 
 
 # ─────────────── Sampling Method ───────────────
-
 
 @dataclass
 class SamplingConfig:
@@ -210,7 +209,7 @@ class AutoMLConfig:
 
         config.search.compute_budget = "low"
         config.search.scout_sample_fraction = 0.1
-        config.search.scout_cv_folds = 2
+        config.search.scout_folds = 2
         config.search.time_budget_soft = 120
 
         return config
@@ -224,7 +223,7 @@ class AutoMLConfig:
 
         config.search.compute_budget = "high"
         config.search.scout_sample_fraction = 0.4
-        config.search.scout_cv_folds = 5
+        config.search.scout_folds = 5
         config.search.time_budget_soft = 1800
 
         return config
@@ -245,35 +244,34 @@ class AutoMLConfig:
     # ─────────────── Post Init Validation ───────────────
 
     def __post_init__(self) -> None:
-
         p = self.preprocessing
 
         self._validate_literal(p.scaling_mode, ScalingMode, "scaling_mode")
         self._validate_literal(p.scaler_kind, ScalerKind, "scaler_kind")
         self._validate_literal(p.encoding_strategy, EncodingStrategy, "encoding_strategy")
-
         self._validate_literal(
             p.feature_selection_method,
             FeatureSelectionMethod,
-            "feature_selection_method"
+            "feature_selection_method",
         )
-
         self._validate_literal(
             p.imputation_strategy,
             ImputationStrategy,
-            "imputation_strategy"
+            "imputation_strategy",
         )
+
+        if p.max_cardinality_one_hot < 1:
+            raise ValueError("max_cardinality_one_hot must be >= 1")
 
         # Feature generation
         fg = self.feature_generation
         self._validate_literal(fg.method, FeatureGenerationMethod, "feature_generation_method")
+        self._validate_literal(fg.strategy, FeatureGenerationStrategy, "feature_generation_strategy")
 
         if fg.max_polynomial_degree < 1:
             raise ValueError("max_polynomial_degree must be >= 1")
-
         if fg.max_generated_features <= 0:
             raise ValueError("max_generated_features must be > 0")
-
         if not (0 < fg.subsample_ratio <= 1):
             raise ValueError("subsample_ratio must be in (0,1]")
 
@@ -283,50 +281,70 @@ class AutoMLConfig:
 
         if dr.n_components is not None and dr.n_components <= 0:
             raise ValueError("n_components must be > 0")
-
         if not (0 < dr.variance_threshold <= 1):
             raise ValueError("variance_threshold must be in (0,1]")
 
         # Problem
         prob = self.problem
-
         if prob.task is not None:
             self._validate_literal(prob.task, MLTask, "task")
-
         if prob.metric is not None:
             self._validate_literal(prob.metric, MetricName, "metric")
 
         # CV
         cv = self.cv
         search = self.search
+        self._validate_literal(cv.strategy, CrossValidationStrategy, "cv.strategy")
 
         if cv.folds < 2:
             raise ValueError("cv.folds must be at least 2")
-
         if cv.use_nested_cv and search.scout_folds >= cv.folds:
-            raise ValueError("scout_folds must be smaller than folds")
-
+            raise ValueError("scout_folds must be smaller than folds when nested CV is enabled")
         if cv.repeats < 1:
             raise ValueError("CV repeats must be >= 1.")
-
         if cv.strategy != "repeated" and cv.repeats > 1:
-            raise ValueError("CV repeats > 1 is ignored unless strategy='repeated'.")
+            raise ValueError("CV repeats > 1 requires strategy='repeated'.")
 
         # Search
-        s = self.search
-
-        if not (0 < s.scout_sample_fraction <= 1):
+        self._validate_literal(search.compute_budget, ComputeBudget, "compute_budget")
+        if not (0 < search.scout_sample_fraction <= 1):
             raise ValueError("scout_sample_fraction must be in (0, 1]")
-
-        if s.time_budget_soft <= 0:
+        if search.scout_folds < 2:
+            raise ValueError("scout_folds must be at least 2")
+        if search.time_budget_soft <= 0:
             raise ValueError("time_budget_soft must be positive")
+        if self.models.top_k_models < 1:
+            raise ValueError("top_k_models must be at least 1")
 
-        # --- Cross-field constraints (STRICT MODE) ---
+        # Data quality
+        self._validate_literal(self.data_quality.leak_handling, LeakHandlingPolicy, "leak_handling")
+        if not (0 < self.data_quality.id_threshold <= 1):
+            raise ValueError("id_threshold must be in (0, 1]")
 
+        # Optuna
+        if self.optuna.n_trials <= 0:
+            raise ValueError("optuna.n_trials must be positive")
+        if self.optuna.n_jobs == 0:
+            raise ValueError("optuna.n_jobs cannot be 0")
+        if self.optuna.direction not in ("maximize", "minimize"):
+            raise ValueError("optuna.direction must be 'maximize' or 'minimize'")
+
+        # Sampling
+        sampling = self.sampling
+        self._validate_literal(sampling.method, SamplingMethod, "sampling.method")
+        if sampling.k_neighbors < 1:
+            raise ValueError("sampling.k_neighbors must be at least 1")
+        if sampling.strategy != "auto":
+            if not isinstance(sampling.strategy, (int, float)):
+                raise TypeError("sampling.strategy must be 'auto' or a float")
+            if not (0 < float(sampling.strategy) <= 1):
+                raise ValueError("numeric sampling.strategy must be in (0, 1]")
+
+        # Cross-field constraints
         if self.problem.task == "regression" and self.cv.strategy == "stratified":
-            raise ValueError(
-                "Invalid config: 'stratified' CV cannot be used for regression."
-            )
+            raise ValueError("Invalid config: 'stratified' CV cannot be used for regression.")
+        if self.problem.task == "regression" and self.sampling.method not in ("auto", "none"):
+            raise ValueError("Sampling methods are only supported for classification.")
 
     def __repr__(self) -> str:
         return (

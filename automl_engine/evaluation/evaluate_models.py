@@ -12,6 +12,7 @@ from automl_engine.planning.experiment.resolved import ResolvedConfig
 from automl_engine.reporting import log_model_score
 from automl_engine.preprocessing import build_pipeline
 from automl_engine.runtime import AutoMLState
+from automl_engine.evaluation.metrics import get_scorer_safe
 
 
 def evaluate_models(
@@ -21,18 +22,13 @@ def evaluate_models(
     stage: str,
     cv_override: Any | None = None,
 ) -> AutoMLState:
-
-    # --- Aliases ---
     runtime = resolved.runtime
-    metric = resolved.problem.metric
     models = resolved.artifacts.models
+    scorer = get_scorer_safe(resolved.problem.metric)
 
-    # 👇 THE FIX
     cv = cv_override if cv_override is not None else resolved.artifacts.cv_object
+    state = AutoMLState()
 
-    state: AutoMLState = AutoMLState()
-
-    # --- Guard against degenerate CV ---
     if hasattr(cv, "n_splits") and getattr(cv, "n_splits") < 2:
         log_model_score(
             "ALL",
@@ -42,29 +38,32 @@ def evaluate_models(
         )
         return state
 
-    # --- Evaluate models ---
     for model_name, model_spec in models.items():
-
         try:
-            pipeline = build_pipeline(
-                spec=model_spec,
-                resolved=resolved,
-            )
+            pipeline = build_pipeline(spec=model_spec, resolved=resolved)
 
             with warnings.catch_warnings():
                 warnings.filterwarnings("error", category=ConvergenceWarning)
-
                 scores = cross_val_score(
                     pipeline,
                     X,
                     y,
                     cv=cv,
-                    scoring=metric,
+                    scoring=scorer,
                     n_jobs=resolved.runtime.n_jobs,
                 )
 
             scores = np.asarray(scores)
-            mean_score: float = float(np.mean(scores))
+            mean_score = float(np.mean(scores))
+
+            if not np.isfinite(mean_score):
+                log_model_score(
+                    model_name,
+                    "SKIPPED: non-finite score",
+                    stage=stage,
+                    log=runtime.log,
+                )
+                continue
 
         except ConvergenceWarning:
             log_model_score(
@@ -75,20 +74,15 @@ def evaluate_models(
             )
             continue
 
-        except Exception as e:
-            print("\n" + "=" * 60)
-            print(f"[CRASH] Model: {model_name}")
-            print("=" * 60)
-            raise
-
-        # except Exception as e:
-        #     log_model_score(
-        #         model_name,
-        #         f"ERROR ({type(e).__name__}: {e})",
-        #         stage=stage,
-        #         log=runtime.log,
-        #     )
-        #     continue
+        except Exception as exc:
+            # A single incompatible estimator must not terminate an AutoML run.
+            log_model_score(
+                model_name,
+                f"ERROR ({type(exc).__name__}: {exc})",
+                stage=stage,
+                log=runtime.log,
+            )
+            continue
 
         log_model_score(
             model_name,

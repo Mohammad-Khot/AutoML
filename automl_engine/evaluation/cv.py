@@ -16,9 +16,22 @@ from sklearn.model_selection import (
 from automl_engine.planning.experiment.resolved import ResolvedConfig
 
 
+def _bounded_folds(requested: int, maximum: int, context: str) -> int:
+    if maximum < 2:
+        raise ValueError(f"{context} requires at least 2 usable samples per CV constraint.")
+
+    effective = min(requested, maximum)
+    if effective != requested:
+        warnings.warn(
+            f"Reducing CV folds from {requested} to {effective} due to {context}."
+        )
+    return effective
+
+
 def get_cv_object(
     target: pd.Series,
-    resolved: ResolvedConfig
+    resolved: ResolvedConfig,
+    folds: int | None = None,
 ) -> Union[
     StratifiedKFold,
     KFold,
@@ -26,113 +39,81 @@ def get_cv_object(
     RepeatedStratifiedKFold,
     TimeSeriesSplit,
 ]:
-    """
-        Construct and return a cross-validation object based on the resolved configuration.
-
-        This function selects the appropriate cross-validation strategy depending on the
-        task type (classification or regression) and user-defined configuration. It also
-        applies safeguards such as adjusting the number of folds for imbalanced classification
-        datasets to prevent runtime errors.
-
-        Supported strategies include:
-        - StratifiedKFold (classification only)
-        - KFold
-        - RepeatedStratifiedKFold
-        - RepeatedKFold
-        - TimeSeriesSplit
-
-        The function automatically resolves the "auto" strategy and ensures minimum valid
-        folds. For classification, it reduces folds if any class has fewer samples than
-        the requested number of splits.
-
-        Args:
-            target (pd.Series): Target variable used to determine class distribution
-                and validate classification constraints.
-            resolved (ResolvedConfig): Fully resolved experiment configuration containing
-                CV settings, problem type, and runtime parameters.
-
-        Returns:
-            Union[StratifiedKFold, KFold, RepeatedKFold, RepeatedStratifiedKFold, TimeSeriesSplit]:
-                Configured cross-validation object ready for use in model evaluation.
-
-        Raises:
-            ValueError: If classification target has fewer than 2 unique classes.
-            ValueError: If stratified CV is requested for non-classification tasks.
-            ValueError: If an unknown CV strategy is specified.
-    """
-    # --- Aliases for readability ---
+    """Construct a safe cross-validation object for the resolved experiment."""
     task = resolved.problem.task
     cv = resolved.cv
     runtime = resolved.runtime
 
+    n_samples = len(target)
+    if n_samples < 2:
+        raise ValueError("Cross-validation requires at least 2 samples.")
+
     cv_strategy = cv.strategy
-    n_splits = cv.folds
+    n_splits = folds if folds is not None else cv.folds
     n_repeats = cv.repeats
     seed = runtime.seed
 
-    # --- Validate classification target ---
-    if task == "classification" and target.nunique() < 2:
+    if n_splits < 2:
+        raise ValueError("Cross-validation requires at least 2 folds.")
+
+    if task == "classification" and target.nunique(dropna=True) < 2:
         raise ValueError("Classification requires at least 2 classes.")
 
-    # --- Normalize strategy ---
     if cv_strategy == "auto":
         cv_strategy = "stratified" if task == "classification" else "kfold"
 
-    # --- Stratified ---
     if cv_strategy == "stratified":
         if task != "classification":
             raise ValueError("Stratified CV only works for classification.")
 
-        min_class_count = target.value_counts().min()
-        effective_folds = max(2, min(n_splits, int(min_class_count)))
-
-        if effective_folds != n_splits:
-            warnings.warn(
-                f"Reducing CV folds from {n_splits} to {effective_folds} due to small class size."
-            )
-
+        min_class_count = int(target.value_counts().min())
+        effective_folds = _bounded_folds(
+            n_splits,
+            min_class_count,
+            "the smallest class size",
+        )
         return StratifiedKFold(
             n_splits=effective_folds,
             shuffle=True,
             random_state=seed,
         )
 
-    # --- KFold ---
     if cv_strategy == "kfold":
+        effective_folds = _bounded_folds(n_splits, n_samples, "dataset size")
         return KFold(
-            n_splits=max(2, n_splits),
+            n_splits=effective_folds,
             shuffle=True,
             random_state=seed,
         )
 
-    # --- Repeated ---
     if cv_strategy == "repeated":
         if task == "classification":
-            min_class_count = target.value_counts().min()
-            effective_folds = max(2, min(n_splits, int(min_class_count)))
-
-            if effective_folds != n_splits:
-                warnings.warn(
-                    f"Reducing CV folds from {n_splits} to {effective_folds} due to small class size."
-                )
-
+            min_class_count = int(target.value_counts().min())
+            effective_folds = _bounded_folds(
+                n_splits,
+                min_class_count,
+                "the smallest class size",
+            )
             return RepeatedStratifiedKFold(
                 n_splits=effective_folds,
                 n_repeats=n_repeats,
                 random_state=seed,
             )
 
+        effective_folds = _bounded_folds(n_splits, n_samples, "dataset size")
         return RepeatedKFold(
-            n_splits=max(2, n_splits),
+            n_splits=effective_folds,
             n_repeats=n_repeats,
             random_state=seed,
         )
 
-    # --- Time Series ---
     if cv_strategy == "timeseries":
-        return TimeSeriesSplit(
-            n_splits=max(2, n_splits)
+        # TimeSeriesSplit requires n_splits < n_samples.
+        effective_folds = _bounded_folds(
+            n_splits,
+            n_samples - 1,
+            "time-series dataset size",
         )
+        return TimeSeriesSplit(n_splits=effective_folds)
 
-    # --- Unknown ---
     raise ValueError(f"Unknown CV strategy: {cv_strategy}")

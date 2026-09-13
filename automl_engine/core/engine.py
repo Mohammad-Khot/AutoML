@@ -1,7 +1,7 @@
 # core/engine.py
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Self
 import time
 
 import numpy as np
@@ -18,7 +18,7 @@ from automl_engine.reporting import (
     print_result_block,
     print_run_header,
     print_row,
-    print_subsection
+    print_subsection,
 )
 
 from automl_engine.preprocessing.describe import describe_pipeline
@@ -33,11 +33,10 @@ class AutoMLEngine:
         self._session: Optional[TrainingSession] = None
 
     def fit(
-            self,
-            data: pd.DataFrame | tuple[pd.DataFrame, pd.Series] | str | Path,
-            save_dir: Optional[str] = None,
-    ) -> None:
-
+        self,
+        data: pd.DataFrame | tuple[pd.DataFrame, pd.Series] | str | Path,
+        save_dir: Optional[str] = None,
+    ) -> Self:
         start_time = time.perf_counter()
 
         if self.fitted:
@@ -45,13 +44,8 @@ class AutoMLEngine:
 
         set_global_seed(self._user_config.runtime.seed)
 
-        X, y = adapt_input(
-            data,
-            self._user_config
-        )
-
+        X, y = adapt_input(data, self._user_config)
         resolver = ExperimentResolver(self._user_config)
-
         X, y, resolved = resolver.resolve(X, y)
 
         if resolved.runtime.log:
@@ -87,45 +81,39 @@ class AutoMLEngine:
         if save_dir:
             self._persist(save_dir)
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        return self
 
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
         if not self.fitted:
             raise RuntimeError("Engine must be trained before prediction.")
 
-        if list(X.columns) != self.session.feature_names:
-            raise ValueError(
-                "Input feature order/schema differs from training data."
-            )
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("predict expects a pandas DataFrame.")
 
-        pipeline = self.session.pipeline
-        preds = pipeline.predict(X)
+        if list(X.columns) != self.session.feature_names:
+            raise ValueError("Input feature order/schema differs from training data.")
+
+        preds = self.session.pipeline.predict(X)
 
         encoder = self.session.label_encoder
         if encoder is not None:
-            preds = encoder.inverse_transform(preds)
+            preds = encoder.inverse_transform(np.asarray(preds, dtype=int))
 
-        return preds
+        return np.asarray(preds)
 
-    def summary(
-            self,
-            show_leaderboard: bool = True,
-    ) -> None:
-
+    def summary(self, show_leaderboard: bool = True) -> None:
         if not self.fitted:
             raise RuntimeError("Engine not trained yet.")
 
         state_scores = self.session.search_state.scores
 
         if show_leaderboard:
-
             print_section("Leaderboard")
-
             sorted_models = sorted(
                 state_scores.items(),
                 key=lambda x: x[1],
-                reverse=True
+                reverse=True,
             )
-
             for name, score in sorted_models:
                 print_row(name, f"{score:.4f}")
 
@@ -134,43 +122,36 @@ class AutoMLEngine:
         if self.resolved.cv.use_nested_cv and self.session.outer_scores:
             from automl_engine.utils import compute_bootstrap_ci
 
-            scores = self.session.outer_scores
-
             mean, margin = compute_bootstrap_ci(
-                scores,
+                self.session.outer_scores,
                 confidence=0.95,
                 n_bootstrap=1000,
-                seed=self.resolved.runtime.seed
+                seed=self.resolved.runtime.seed,
             )
-
             std = margin
             label = "Performance (Nested CV)"
-
         else:
             mean = state_scores[best]
             std = None
             label = "Performance (CV)"
 
         print_result_block(
-            model=self.session.best_model_name,
+            model=best,
             metric=self.resolved.problem.metric,
             mean=float(mean),
             std=float(std) if std is not None else None,
             runtime=float(self._runtime or 0.0),
-            label=label
+            label=label,
         )
 
         if self._user_config.generate_optuna_plots:
-
             plots = self.session.optuna_plots
-
             if plots:
                 for name, fig in plots.items():
                     print_subsection(f"Optuna Plot: {name}")
                     fig.show()
 
     def _persist(self, save_dir: str) -> None:
-
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)
 
@@ -179,10 +160,9 @@ class AutoMLEngine:
 
     @property
     def resolved(self) -> ResolvedConfig:
-
         if not self.fitted:
             raise RuntimeError("Engine not fitted yet.")
-
+        assert self._session is not None
         return self._session.resolved
 
     @property
@@ -191,8 +171,17 @@ class AutoMLEngine:
 
     @property
     def session(self) -> TrainingSession:
-
         if not self.fitted:
             raise RuntimeError("Engine not fitted yet.")
-
+        assert self._session is not None
         return self._session
+
+    @property
+    def best_model_name_(self) -> str:
+        """scikit-learn-style compatibility accessor for the selected model."""
+        return self.session.best_model_name
+
+    @property
+    def best_score_(self) -> float:
+        """Return the selected model's CV score from the final leaderboard."""
+        return float(self.session.search_state.scores[self.best_model_name_])

@@ -11,6 +11,7 @@ from sklearn.base import BaseEstimator
 from automl_engine.evaluation import evaluate_models, get_cv_object
 from automl_engine.orchestration.nested import run_nested_cv
 from automl_engine.planning.experiment import ResolvedConfig
+from automl_engine.planning.models import select_best_model
 from automl_engine.reporting import print_section
 
 from automl_engine.runtime.state import AutoMLState
@@ -23,8 +24,6 @@ def execute_training_workflow(
     y: pd.Series,
     resolved: ResolvedConfig,
 ) -> tuple[Any, AutoMLState, list[float], str, dict[str, Figure] | None]:
-
-    # --- Aliases ---
     runtime = resolved.runtime
     cv_config = resolved.cv
     models = resolved.artifacts.models
@@ -33,68 +32,60 @@ def execute_training_workflow(
 
     optuna_plots: dict[str, Figure] | None = None
 
-    # ---------- Standard CV ----------
     if not cv_config.use_nested_cv:
         if runtime.log:
             print_section("Standard Cross Validation")
 
-        state: AutoMLState = evaluate_models(
-            X,
-            y,
-            resolved,
-            "OUTER_CV",
-        )
+        state = evaluate_models(X, y, resolved, "OUTER_CV")
 
         if not state.scores:
             raise RuntimeError("No models were successfully evaluated.")
 
-        best_model_name: str = max(state.scores, key=state.scores.get)
+        best_model_name = select_best_model(state.scores, models)
         best_pipeline: BaseEstimator = state.get_pipeline(best_model_name)
+
+        # cross_val_score fits clones of the pipeline, not the pipeline stored
+        # in AutoMLState. Fit the selected pipeline on all data before exposing
+        # it through AutoMLEngine.predict().
+        best_pipeline.fit(X, y)
 
         return (
             best_pipeline,
             state,
-            list(state.scores.values()),
+            [],
             best_model_name,
             None,
         )
 
-    # ---------- Nested ----------
     if runtime.log:
         print_section("Nested Evaluation")
 
     outer_result: Dict[str, Any] = run_nested_cv(X, y, resolved)
+    outer_scores = outer_result["outer_scores"]
+    selected_models = outer_result["selected_models"]
 
-    outer_scores: list[float] = outer_result["outer_scores"]
-    selected_models: list[str] = outer_result["selected_models"]
+    if not selected_models:
+        raise RuntimeError("Nested CV did not select any model.")
 
-    best_model_name: str = Counter(selected_models).most_common(1)[0][0]
+    best_model_name = Counter(selected_models).most_common(1)[0][0]
 
     if runtime.log:
         print(f"Selected Model (by frequency): {best_model_name}")
-
-    # ---------- Evaluate All Models on Full Data ----------
-    if runtime.log:
         print_section("Final Fit")
 
-    state: AutoMLState = evaluate_models(X, y, resolved, "FINAL FIT")
-
-    # ---------- Hyperparameter Optimization ----------
-    if runtime.log:
-        print_section("Hyperparameter Optimization")
+    state = evaluate_models(X, y, resolved, "FINAL FIT")
+    if not state.scores:
+        raise RuntimeError("No models were successfully evaluated during final fit.")
 
     best_info = models[best_model_name]
-
-    tuning_cv = get_cv_object(y, resolved)
-
-    pipeline: Any = build_pipeline(
-        best_info,
-        resolved,
-    )
-
+    pipeline: Any = build_pipeline(best_info, resolved)
     hyperparameter_space = best_info.hyperparameter_space
 
-    if hyperparameter_space is not None:
+    if resolved.optuna.enabled and hyperparameter_space is not None:
+        if runtime.log:
+            print_section("Hyperparameter Optimization")
+
+        tuning_cv = get_cv_object(y, resolved)
         tuned_pipeline, study = optimize_model(
             pipeline=pipeline,
             X=X,
@@ -106,7 +97,7 @@ def execute_training_workflow(
             resolved=resolved,
         )
 
-        if study is not None:
+        if study is not None and resolved.generate_optuna_plots:
             import optuna.visualization as vis
 
             optuna_plots = {
@@ -114,13 +105,7 @@ def execute_training_workflow(
                 "importance": vis.plot_param_importances(study),
                 "parallel": vis.plot_parallel_coordinate(study),
             }
-
     else:
-        if runtime.log:
-            print(
-                f"No hyperparameters to tune for '{best_model_name}'. Skipping optimization."
-            )
-
         tuned_pipeline = pipeline.fit(X, y)
 
     return (

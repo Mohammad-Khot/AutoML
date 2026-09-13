@@ -1,14 +1,13 @@
-import pandas as pd
-import numpy as np
 import time
 from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 
 from automl_engine import AutoMLEngine, AutoMLConfig
 
-# ───────────────────────────────────────────────
-# CONFIG SPACE
-# ───────────────────────────────────────────────
 TASKS = ["classification", "regression"]
 SCALING = ["auto", "force", "none"]
 ENCODING = ["auto", "onehot", "ordinal", "none"]
@@ -16,10 +15,9 @@ FOLDS = [3, 5]
 SEEDS = [42, 7]
 
 
-# ───────────────────────────────────────────────
-# DATA GENERATORS
-# ───────────────────────────────────────────────
 def get_dataset(task, kind="normal", seed=42):
+    rng = np.random.default_rng(seed)
+
     if task == "classification":
         if kind == "perfect":
             X, y = make_classification(
@@ -31,8 +29,8 @@ def get_dataset(task, kind="normal", seed=42):
                 random_state=seed,
             )
         elif kind == "noise":
-            X = np.random.randn(500, 10)
-            y = np.random.randint(0, 2, 500)
+            X = rng.normal(size=(500, 10))
+            y = rng.integers(0, 2, 500)
         else:
             X, y = make_classification(
                 n_samples=500,
@@ -49,8 +47,8 @@ def get_dataset(task, kind="normal", seed=42):
                 random_state=seed,
             )
         elif kind == "noise":
-            X = np.random.randn(500, 10)
-            y = np.random.randn(500)
+            X = rng.normal(size=(500, 10))
+            y = rng.normal(size=500)
         else:
             X, y = make_regression(
                 n_samples=500,
@@ -62,29 +60,27 @@ def get_dataset(task, kind="normal", seed=42):
     return pd.DataFrame(X), pd.Series(y)
 
 
-# ───────────────────────────────────────────────
-# CORE TEST RUNNER
-# ───────────────────────────────────────────────
-def run_engine(df, scaling, encoding, folds, seed):
+def run_engine(df, task, scaling, encoding, folds, seed):
     config = AutoMLConfig()
-
+    config.problem.task = task
     config.runtime.seed = seed
+    config.runtime.log = False
     config.cv.folds = folds
-    config.preprocessing.scaling = scaling
-    config.preprocessing.encoding = encoding
+    config.preprocessing.scaling_mode = scaling
+    config.preprocessing.encoding_strategy = encoding
+
+    # This suite exercises model selection rather than expensive tuning.
+    config.optuna.enabled = False
+    config.generate_optuna_plots = False
 
     engine = AutoMLEngine(config)
     engine.fit(df)
 
-    score = getattr(engine, "best_score_", None)
-    model = getattr(engine, "best_model_name_", None)
-
-    return score, model
+    return engine.best_score_, engine.best_model_name_
 
 
 def run_test(config_tuple, test_type, dataset_kind):
     task, scaling, encoding, folds, seed = config_tuple
-
     X, y = get_dataset(task, dataset_kind, seed)
 
     df = X.copy()
@@ -95,12 +91,9 @@ def run_test(config_tuple, test_type, dataset_kind):
     try:
         score, model = run_engine(df, task, scaling, encoding, folds, seed)
         status = "success"
-
-    except Exception as e:
+    except Exception as exc:
         score, model = None, None
-        status = f"fail: {str(e)[:100]}"
-
-    duration = time.time() - start
+        status = f"fail: {str(exc)[:100]}"
 
     return {
         "timestamp": datetime.now(),
@@ -114,51 +107,43 @@ def run_test(config_tuple, test_type, dataset_kind):
         "status": status,
         "score": score,
         "model": model,
-        "duration": duration,
+        "duration": time.time() - start,
     }
 
 
-# ───────────────────────────────────────────────
-# ALL TESTS
-# ───────────────────────────────────────────────
 def run_all_tests():
     results = []
 
     configs = [
-        (t, s, e, f, seed)
-        for t in TASKS
-        for s in SCALING
-        for e in ENCODING
-        for f in FOLDS
+        (task, scaling, encoding, folds, seed)
+        for task in TASKS
+        for scaling in SCALING
+        for encoding in ENCODING
+        for folds in FOLDS
         for seed in SEEDS
     ]
 
-    # 1. STRUCTURAL
     for cfg in configs:
         results.append(run_test(cfg, "structural", "normal"))
 
-    # 2. DETERMINISM
     for cfg in configs[:10]:
         r1 = run_test(cfg, "determinism_1", "normal")
         r2 = run_test(cfg, "determinism_2", "normal")
 
-        # compare scores
-        if r1["score"] == r2["score"]:
-            r1["status"] = r2["status"] = "deterministic"
-        else:
-            r1["status"] = r2["status"] = "non_deterministic"
+        if r1["status"] == "success" and r2["status"] == "success":
+            deterministic = np.isclose(r1["score"], r2["score"], equal_nan=True)
+            r1["status"] = r2["status"] = (
+                "deterministic" if deterministic else "non_deterministic"
+            )
 
         results.extend([r1, r2])
 
-    # 3. CORRECTNESS
     for cfg in configs[:10]:
         results.append(run_test(cfg, "perfect_data", "perfect"))
         results.append(run_test(cfg, "noise_data", "noise"))
 
-    # 4. LEAKAGE
     for cfg in configs[:10]:
         task, scaling, encoding, folds, seed = cfg
-
         X, y = get_dataset(task, "normal", seed)
 
         df = X.copy()
@@ -168,16 +153,15 @@ def run_all_tests():
         try:
             score, model = run_engine(df, task, scaling, encoding, folds, seed)
 
-            if task == "classification" and score is not None and score > 0.95:
+            if task == "classification" and score > 0.95:
                 status = "leakage_detected"
-            elif task == "regression" and score is not None and score < 1e-3:
+            elif task == "regression" and score > 0.95:
                 status = "leakage_detected"
             else:
                 status = "no_leakage_signal"
-
-        except Exception as e:
+        except Exception as exc:
             score, model = None, None
-            status = f"fail: {str(e)[:100]}"
+            status = f"fail: {str(exc)[:100]}"
 
         results.append({
             "timestamp": datetime.now(),
@@ -194,14 +178,14 @@ def run_all_tests():
             "duration": None,
         })
 
-    # 5. EDGE CASES
     for task in TASKS:
-        X = pd.DataFrame(np.random.randn(100, 1))
-
-        if task == "classification":
-            y = pd.Series(np.random.randint(0, 2, 100))
-        else:
-            y = pd.Series(np.random.randn(100))
+        rng = np.random.default_rng(42)
+        X = pd.DataFrame(rng.normal(size=(100, 1)))
+        y = pd.Series(
+            rng.integers(0, 2, 100)
+            if task == "classification"
+            else rng.normal(size=100)
+        )
 
         df = X.copy()
         df["target"] = y
@@ -209,10 +193,9 @@ def run_all_tests():
         try:
             score, model = run_engine(df, task, "auto", "auto", 3, 42)
             status = "success"
-
-        except Exception as e:
+        except Exception as exc:
             score, model = None, None
-            status = f"fail: {str(e)[:100]}"
+            status = f"fail: {str(exc)[:100]}"
 
         results.append({
             "timestamp": datetime.now(),
@@ -232,17 +215,13 @@ def run_all_tests():
     return pd.DataFrame(results)
 
 
-# ───────────────────────────────────────────────
-# MAIN
-# ───────────────────────────────────────────────
 if __name__ == "__main__":
     df = run_all_tests()
 
-    output_file = "../automl_test_results.csv"
+    output_file = Path(__file__).resolve().parent.parent / "automl_test_results.csv"
     df.to_csv(output_file, index=False)
 
-    print("\n🔥 TEST SUITE COMPLETE")
-    print(f"Saved results → {output_file}")
-
+    print("\nTEST SUITE COMPLETE")
+    print(f"Saved results -> {output_file}")
     print("\nSummary:")
     print(df["status"].value_counts())

@@ -1,6 +1,7 @@
 # optimization/optuna_tuner.py
+import inspect
 import optuna
-from typing import Any, Callable, cast
+from typing import Any, Callable, cast, Optional
 from optuna.trial import Trial
 from optuna.study import Study
 
@@ -21,18 +22,7 @@ def objective(
     cv: Any,
     scoring: str | Callable,
 ) -> float:
-    """
-    Optuna objective function used for hyperparameter optimization.
-
-    This function retrieves the model search space from MODEL_REGISTRY,
-    samples hyperparameters using the provided Optuna trial, applies them
-    to a cloned pipeline, and evaluates the model using cross-validation.
-
-    Returns the mean cross-validation score.
-    """
-
     spec = MODEL_REGISTRY[task][model_name]
-
     hyperparameter_space = spec.hyperparameter_space
 
     if hyperparameter_space is None:
@@ -40,9 +30,14 @@ def objective(
             f"No hyperparameter_space defined for model '{model_name}' under task '{task}'."
         )
 
-    params = hyperparameter_space(trial)
+    # Some no-op spaces in the registry are intentionally zero-argument
+    # callables. Support both those and normal Optuna trial factories.
+    if len(inspect.signature(hyperparameter_space).parameters) == 0:
+        params = hyperparameter_space()
+    else:
+        params = hyperparameter_space(trial)
 
-    model: BaseEstimator = cast(BaseEstimator, clone(pipeline))
+    model = cast(BaseEstimator, clone(pipeline))
     model.set_params(**params)
 
     scores = cross_val_score(
@@ -69,22 +64,15 @@ def run_optuna(
     resolved: ResolvedConfig,
     n_trials: int = 100,
     n_jobs: int = 1,
-    seed: int = 42,
+    seed: Optional[int] = 42,
 ) -> Study:
-    """
-    Execute Optuna hyperparameter optimization for a given pipeline.
-
-    Creates an Optuna study with a TPE sampler and Median pruner,
-    runs optimization using the defined objective function, and
-    returns the completed study object.
-    """
     if not resolved.runtime.log:
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     sampler = optuna.samplers.TPESampler(seed=seed)
     pruner = optuna.pruners.MedianPruner()
 
-    study_name = f"{task}_{model_name}_{scoring}_seed{resolved.runtime.seed}"
+    study_name = f"{task}_{model_name}_{resolved.problem.metric}_seed{resolved.runtime.seed}"
 
     study = optuna.create_study(
         study_name=study_name,
@@ -106,7 +94,7 @@ def run_optuna(
         ),
         n_trials=n_trials,
         n_jobs=n_jobs,
-        timeout=600
+        timeout=resolved.search.time_budget_soft,
     )
 
     return study

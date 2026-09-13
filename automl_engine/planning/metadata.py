@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
+from automl_engine.planning.config import MLTask
+
 
 @dataclass
 class DataInfo:
@@ -21,26 +23,27 @@ class DataInfo:
 
     max_cardinality: int = 0
 
-    # numeric + stats
     num_numeric_features: int = 0
     has_outliers: bool = False
     scale_range_large: bool = False
     has_skewed_features: bool = False
     has_constant_features: bool = False
 
-    # categorical breakdown
     n_categorical_features: int = 0
     n_high_cardinality_features: int = 0
     n_low_cardinality_features: int = 0
 
     @classmethod
-    def from_data(cls, X: pd.DataFrame, y: Optional[pd.Series] = None) -> "DataInfo":
-
+    def from_data(
+        cls,
+        X: pd.DataFrame,
+        y: Optional[pd.Series] = None,
+        task: Optional[MLTask] = None,
+    ) -> "DataInfo":
         n_rows = int(X.shape[0])
         n_features = int(X.shape[1])
 
         is_sparse = sparse.isspmatrix(X)
-
         has_categorical = False
         max_cardinality = 0
 
@@ -54,114 +57,81 @@ class DataInfo:
         n_high_cardinality_features = 0
         n_low_cardinality_features = 0
 
-        # =========================
-        # SPARSE HANDLING
-        # =========================
         has_missing = False
         missing_fraction = 0.0
 
         if is_sparse:
             num_numeric_features = X.shape[1]
-
-            # missing values in sparse
             if X.nnz > 0:
-                has_missing = np.isnan(X.data).any()
-                missing_fraction = np.isnan(X.data).sum() / X.data.size
-            else:
-                has_missing = False
-                missing_fraction = 0.0
+                has_missing = bool(np.isnan(X.data).any())
+                missing_fraction = float(np.isnan(X.data).sum() / X.data.size)
 
-        # =========================
-        # DATAFRAME HANDLING
-        # =========================
         elif isinstance(X, pd.DataFrame):
-
-            # --- categorical ---
             cat_cols = X.select_dtypes(include=["object", "category", "string"])
             n_categorical_features = len(cat_cols.columns)
             has_categorical = n_categorical_features > 0
 
             if has_categorical:
                 cardinalities = [int(X[col].nunique(dropna=True)) for col in cat_cols.columns]
-                max_cardinality = max(cardinalities)
+                max_cardinality = max(cardinalities, default=0)
 
-                for c in cardinalities:
-                    if c > 20:
+                for cardinality in cardinalities:
+                    if cardinality > 20:
                         n_high_cardinality_features += 1
                     else:
                         n_low_cardinality_features += 1
 
-            # --- numeric ---
             num_cols = X.select_dtypes(include="number")
             num_numeric_features = len(num_cols.columns)
 
-            if num_numeric_features > 0:
-                numeric_data = num_cols
+            if num_numeric_features > 0 and len(num_cols) > 0:
+                sample = num_cols.sample(min(10000, len(num_cols)), random_state=42)
 
-                # ===== SAMPLE for performance =====
-                sample = numeric_data.sample(
-                    min(10000, len(numeric_data)), random_state=42
-                )
-
-                # --- OUTLIERS (IQR) ---
                 q1 = sample.quantile(0.25)
                 q3 = sample.quantile(0.75)
                 iqr = q3 - q1
-
                 outlier_mask = (
-                    (sample < (q1 - 1.5 * iqr)) |
-                    (sample > (q3 + 1.5 * iqr))
+                    (sample < (q1 - 1.5 * iqr))
+                    | (sample > (q3 + 1.5 * iqr))
                 )
+                has_outliers = bool(outlier_mask.to_numpy().mean() > 0.05)
 
-                outlier_ratio = outlier_mask.to_numpy().mean()
-                has_outliers = outlier_ratio > 0.05
+                # Compare robust feature ranges instead of dividing maxima by
+                # minima, which is unstable for features centered around zero.
+                q05 = sample.quantile(0.05)
+                q95 = sample.quantile(0.95)
+                robust_ranges = (q95 - q05).abs()
+                positive_ranges = robust_ranges[robust_ranges > 0]
+                if not positive_ranges.empty:
+                    scale_range_large = bool(
+                        positive_ranges.max() / positive_ranges.min() > 100
+                    )
 
-                # --- SCALE RANGE (robust version) ---
-                col_min = sample.min()
-                col_max = sample.max()
-
-                scale_ratio = (col_max / (col_min.abs() + 1e-9)).replace([np.inf, -np.inf], 1)
-                scale_range_large = scale_ratio.max() > 100
-
-                # --- SKEWNESS ---
                 skew = sample.skew().abs()
-                has_skewed_features = (skew > 1).any()
+                has_skewed_features = bool((skew > 1).any())
+                has_constant_features = bool((sample.nunique() <= 1).any())
 
-                # --- CONSTANT FEATURES ---
-                has_constant_features = (sample.nunique() <= 1).any()
-
-            # --- Missing ---
             total_cells = n_rows * n_features
             missing_count = int(X.isna().sum().sum())
             has_missing = missing_count > 0
             missing_fraction = missing_count / total_cells if total_cells > 0 else 0.0
 
-        # =========================
-        # NUMPY ARRAY HANDLING
-        # =========================
         else:
             num_numeric_features = n_features
-
             if not is_sparse:
-                missing_count = int(np.isnan(X).sum())
-                total_cells = int(X.size)
+                array = np.asarray(X)
+                missing_count = int(np.isnan(array).sum())
+                total_cells = int(array.size)
                 has_missing = missing_count > 0
                 missing_fraction = missing_count / total_cells if total_cells > 0 else 0.0
 
-        # =========================
-        # TARGET
-        # =========================
         n_classes = None
         minority_ratio = None
 
-        if y is not None:
-            y_array = np.asarray(y)
-            unique_classes, counts = np.unique(y_array, return_counts=True)
-
-            is_classification = len(unique_classes) < 50
-
-            if is_classification:
-                n_classes = int(len(unique_classes))
+        if y is not None and task == "classification":
+            counts = pd.Series(y).value_counts(dropna=True)
+            if len(counts) > 0:
+                n_classes = int(len(counts))
                 minority_ratio = float(counts.min() / counts.sum())
 
         return cls(

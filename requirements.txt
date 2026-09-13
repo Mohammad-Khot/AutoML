@@ -5,9 +5,7 @@ xgboost~=3.2.0
 optuna~=4.7.0
 openml~=0.15.1
 tqdm~=4.67.3
-
 scipy~=1.17.0
 joblib~=1.5.3
-imblearn~=0.0
+imbalanced-learn>=0.14.1,<0.15
 plotly~=6.5.2
-imblearn
